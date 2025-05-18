@@ -33,12 +33,20 @@ export function biometricTokenInitializer(
   navigationService: NavigationService
 ) {
   return () => {
-    // If there's a valid biometric token, we can perform actions
-    // like pre-loading user data or redirecting to the home page
+    console.log('App initializer: Checking for biometric token...');
+
+    // If there's a valid biometric token, authenticate the user
     if (biometricAuthService.hasBiometricToken()) {
+      console.log('App initializer: Valid biometric token found, authenticating user');
       biometricAuthService.loginWithStoredToken();
+
+      // Note: We don't navigate here because it's too early in the app lifecycle
+      // The auth guard or components will handle navigation after initialization
       return Promise.resolve(true);
+    } else {
+      console.log('App initializer: No valid biometric token found');
     }
+
     return Promise.resolve(true);
   };
 }

@@ -117,17 +117,20 @@ export class AuthService {
    * Sets the authenticated user from a token (for biometric auth)
    *
    * @param userId The user ID from the token
+   * @param email The user's email address
+   * @param username The user's display name
    */
-  setAuthenticatedUserFromToken(userId: string): void {
+  setAuthenticatedUserFromToken(userId: string, email?: string, username?: string): void {
     // In a real app, we would validate the token with the server
     // and get the actual user data. For this demo, we'll create a mock user.
     const mockUser: IUser = {
-      email: `${userId}@example.com`,
-      username: `User ${userId.slice(-4)}`
+      email: email || `${userId}@example.com`,
+      username: username || `User ${userId.slice(-4)}`
     };
 
     this.currentUserSig.set(mockUser);
     this.biometricUser.next(mockUser);
+    console.log('User authenticated from token:', mockUser);
   }
 
   /**

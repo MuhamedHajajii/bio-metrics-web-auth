@@ -88,20 +88,30 @@ export class LoginComponent implements OnInit {
    * and automatically logs in if one exists
    */
   private checkForExistingBiometricToken(): void {
+    // Check if there's a valid token
+    console.log('Checking for existing biometric token...');
     if (this.biometricAuthService.hasBiometricToken()) {
+      console.log('Valid biometric token found, attempting login...');
+
       // Show loading state
       this.isLoading.set(true);
 
       // Attempt login with stored token
       if (this.biometricAuthService.loginWithStoredToken()) {
+        console.log('Successfully logged in with biometric token, redirecting to home');
+
         // Simulate a brief delay for better UX
         setTimeout(() => {
           this.isLoading.set(false);
           this.navigationService.navigateToHome();
         }, 1000);
       } else {
+        console.log('Failed to log in with biometric token');
         this.isLoading.set(false);
+        this.errorMessage.set('Automatic login failed. Please log in manually.');
       }
+    } else {
+      console.log('No valid biometric token found');
     }
   }
 
@@ -109,11 +119,10 @@ export class LoginComponent implements OnInit {
    * Detects if the current device is mobile
    */
   private detectMobile(): void {
-    // Basic mobile detection
-    if (typeof window !== 'undefined') {
-      const isMobileDevice = this.biometricAuthService.isBiometricSupported();
-      this.isMobile.set(isMobileDevice);
-    }
+    // Use the biometricAuthService to check for support
+    const isBiometricSupported = this.biometricAuthService.isBiometricSupported();
+    this.isMobile.set(isBiometricSupported);
+    console.log('Biometric authentication supported:', isBiometricSupported);
   }
 
   /**
@@ -190,11 +199,13 @@ export class LoginComponent implements OnInit {
    * Handles biometric authentication for mobile devices
    */
   loginWithBiometrics(): void {
+    console.log('Attempting biometric authentication...');
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
     this.biometricAuthService.authenticateWithBiometrics().subscribe({
       next: () => {
+        console.log('Biometric authentication successful, navigating to home');
         this.isLoading.set(false);
         this.navigationService.navigateToHome();
       },

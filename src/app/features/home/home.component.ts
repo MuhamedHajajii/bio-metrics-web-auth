@@ -53,12 +53,17 @@ export class HomeComponent implements OnInit {
    * Initializes the component and loads user data.
    */
   ngOnInit(): void {
+    console.log('Home component initialized');
+
     // Check for biometric authentication first
-    this.isBiometricAuth.set(this.biometricAuthService.hasBiometricToken());
+    const hasBiometricToken = this.biometricAuthService.hasBiometricToken();
+    this.isBiometricAuth.set(hasBiometricToken);
+    console.log('User authenticated via biometrics:', hasBiometricToken);
 
     // Subscribe to the authenticated user from either source
     this.authService.authenticatedUser$.subscribe({
       next: (userData) => {
+        console.log('Received user data:', userData);
         if (userData) {
           this.user.set(userData);
           this.isLoading.set(false);
@@ -66,16 +71,18 @@ export class HomeComponent implements OnInit {
           // Fall back to Firebase auth
           this.authService.user$.subscribe({
             next: (firebaseUser) => {
+              console.log('Received Firebase user:', firebaseUser);
               if (firebaseUser) {
                 this.user.set({
                   email: firebaseUser.email || '',
                   username: firebaseUser.displayName || ''
                 });
+                this.isLoading.set(false);
               } else {
                 // No user is logged in, redirect to login
+                console.log('No authenticated user found, redirecting to login');
                 this.navigationService.navigateToLogin();
               }
-              this.isLoading.set(false);
             },
             error: (error) => {
               console.error('Error checking authentication:', error);

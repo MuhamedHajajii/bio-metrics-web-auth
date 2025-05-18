@@ -3,12 +3,13 @@
  *
  * Handles biometric authentication and token management.
  */
-import { Injectable, inject } from '@angular/core';
+import { Injectable, PLATFORM_ID, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { Observable, of, throwError } from 'rxjs';
 import { delay, tap } from 'rxjs/operators';
 import { AuthService } from './auth.service';
 import { NavigationService } from './navigation.service';
+import { isPlatformBrowser } from '@angular/common';
 
 /**
  * Token interface defining the structure of authentication tokens
@@ -17,6 +18,8 @@ interface AuthToken {
   token: string;
   expiresAt: number;
   userId: string;
+  email: string;
+  username: string;
 }
 
 /**
@@ -32,6 +35,7 @@ export class BiometricAuthService {
   private authService = inject(AuthService);
   private navigationService = inject(NavigationService);
   private router = inject(Router);
+  private platformId = inject(PLATFORM_ID);
 
   /**
    * Determines if the current device supports biometric authentication
@@ -39,13 +43,13 @@ export class BiometricAuthService {
    * @returns True if biometric authentication is supported
    */
   isBiometricSupported(): boolean {
-    // Check if the device is mobile
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    // Simulate biometric support for all devices for testing purposes
+    // In a real app, we would check the actual device capabilities
+    return true;
 
-    // In a real app, we would also check for Web Authentication API support:
-    // return isMobile && (window.PublicKeyCredential !== undefined);
-
-    return isMobile;
+    // Real implementation would check:
+    // const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    // return isMobile && (typeof window !== 'undefined' && window.PublicKeyCredential !== undefined);
   }
 
   /**
@@ -67,11 +71,6 @@ export class BiometricAuthService {
    * @returns An Observable that resolves to a success value on successful authentication
    */
   authenticateWithBiometrics(): Observable<boolean> {
-    // In a real implementation, we would:
-    // 1. Request biometric authentication through WebAuthn API
-    // 2. Verify the response on our server
-    // 3. Receive and store the token
-
     // For simulation, we'll generate a token with a future expiration
     if (this.isBiometricSupported()) {
       // Simulate biometric authentication delay
@@ -79,17 +78,25 @@ export class BiometricAuthService {
         delay(1500),
         tap(() => {
           // Generate a mock token with a 7-day expiration
+          const mockUsername = `User${Math.floor(Math.random() * 1000)}`;
+          const mockEmail = `user${Math.floor(Math.random() * 1000)}@example.com`;
+          const userId = `user_${Math.random().toString(36).substring(2, 10)}`;
+
           const token: AuthToken = {
-            token: 'biometric_auth_' + Math.random().toString(36).substr(2),
+            token: 'biometric_auth_' + Math.random().toString(36).substring(2, 15),
             expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000), // 7 days
-            userId: 'user_' + Math.random().toString(36).substr(2)
+            userId: userId,
+            email: mockEmail,
+            username: mockUsername
           };
 
-          // Store the token
+          // Store the token with all user info
           this.storeToken(token);
 
           // Update authentication state in AuthService
-          this.authService.setAuthenticatedUserFromToken(token.userId);
+          this.authService.setAuthenticatedUserFromToken(token.userId, token.email, token.username);
+
+          console.log('Biometric auth successful, token stored:', token);
         })
       );
     } else {
@@ -107,10 +114,16 @@ export class BiometricAuthService {
       const token = this.getStoredToken();
       if (token) {
         // Update authentication state in AuthService
-        this.authService.setAuthenticatedUserFromToken(token.userId);
+        this.authService.setAuthenticatedUserFromToken(
+          token.userId,
+          token.email || `${token.userId}@example.com`,
+          token.username || `User ${token.userId.slice(-4)}`
+        );
+        console.log('Successfully logged in with stored biometric token');
         return true;
       }
     }
+    console.log('No valid biometric token found');
     return false;
   }
 
@@ -119,6 +132,7 @@ export class BiometricAuthService {
    */
   clearBiometricToken(): void {
     localStorage.removeItem(this.TOKEN_KEY);
+    console.log('Biometric token cleared');
   }
 
   /**
@@ -136,14 +150,17 @@ export class BiometricAuthService {
    * @returns The stored token or null if none exists
    */
   private getStoredToken(): AuthToken | null {
-    const tokenJson = localStorage.getItem(this.TOKEN_KEY);
+    if(isPlatformBrowser(this.platformId)) {
+      const tokenJson = localStorage.getItem(this.TOKEN_KEY);
     if (!tokenJson) return null;
 
     try {
       return JSON.parse(tokenJson) as AuthToken;
     } catch (e) {
       console.error('Error parsing stored token:', e);
-      return null;
+        return null;
+      }
     }
+    return null;
   }
 }
