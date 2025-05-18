@@ -93,6 +93,12 @@ export class LoginComponent implements OnInit, OnDestroy {
   protected readonly isMockBiometricMode = signal<boolean>(false);
 
   /**
+   * Local storage key for WebAuthn credential
+   * @private
+   */
+  private readonly CREDENTIAL_KEY = 'webauthnCredential';
+
+  /**
    * The login form with validation.
    */
   protected loginForm = this.fb.group({
@@ -128,30 +134,36 @@ export class LoginComponent implements OnInit, OnDestroy {
    * and automatically logs in if one exists
    */
   private checkForExistingBiometricToken(): void {
-    // Check if there's a valid token
     console.log('Checking for existing biometric token...');
-    if (this.biometricAuthService.hasBiometricToken()) {
-      console.log('Valid biometric token found, attempting login...');
+    try {
+      const stored = localStorage.getItem(this.CREDENTIAL_KEY);
+      if (stored) {
+        console.log('Valid biometric token found, attempting login...');
+        this.isLoading.set(true);
 
-      // Show loading state
-      this.isLoading.set(true);
+        // Get the token from the stored credential
+        const credData = JSON.parse(stored);
+        if (credData && credData.token) {
+          // Use the token to authenticate the user
+          const token = atob(credData.token);
 
-      // Attempt login with stored token
-      if (this.biometricAuthService.loginWithStoredToken()) {
-        console.log('Successfully logged in with biometric token, redirecting to home');
-
-        // Simulate a brief delay for better UX
-        setTimeout(() => {
+          // Simulate a successful login using the token
+          console.log('Successfully logged in with biometric token, redirecting to home');
+          setTimeout(() => {
+            this.isLoading.set(false);
+            this.navigationService.navigateToHome();
+          }, 1000);
+        } else {
+          console.log('Invalid biometric token format');
           this.isLoading.set(false);
-          this.navigationService.navigateToHome();
-        }, 1000);
+          this.errorMessage.set('Automatic login failed. Please log in manually.');
+        }
       } else {
-        console.log('Failed to log in with biometric token');
-        this.isLoading.set(false);
-        this.errorMessage.set('Automatic login failed. Please log in manually.');
+        console.log('No valid biometric token found');
       }
-    } else {
-      console.log('No valid biometric token found');
+    } catch (error) {
+      console.error('Error checking biometric token:', error);
+      this.errorMessage.set('Error checking biometric token. Please log in manually.');
     }
   }
 
@@ -164,29 +176,36 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.isMobileOrTablet.set(isMobileOrTablet);
     console.log('Mobile or tablet device detected:', isMobileOrTablet);
 
-    // Check if WebAuthn is supported
-    const isWebAuthnSupported = this.biometricAuthService.isBiometricSupported();
+    // Check if WebAuthn is supported by checking if navigator.credentials exists
+    const isWebAuthnSupported = window.PublicKeyCredential !== undefined &&
+                               navigator.credentials !== undefined;
     this.isWebAuthnSupported.set(isWebAuthnSupported);
     console.log('WebAuthn supported:', isWebAuthnSupported);
 
     if (isWebAuthnSupported) {
       try {
         // Check if platform authenticator is available
-        const isPlatformAuthAvailable = await this.biometricAuthService.isPlatformAuthenticatorAvailable();
+        const isPlatformAuthAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
         this.isPlatformAuthenticatorAvailable.set(isPlatformAuthAvailable);
         console.log('Platform authenticator available:', isPlatformAuthAvailable);
 
         if (isPlatformAuthAvailable) {
-          // Get detailed biometric capability information
-          const capabilityInfo = await this.biometricAuthService.getBiometricCapability();
-          if (capabilityInfo.isAvailable && capabilityInfo.type) {
-            this.biometricType.set(capabilityInfo.type as BiometricType);
-            console.log('Biometric type detected:', capabilityInfo.type);
-          }
+          // For simplicity, assume fingerprint on most devices
+          // In a real app, we could try to detect the specific biometric type
+          this.biometricType.set(BiometricType.FINGERPRINT);
+          console.log('Biometric type detected:', BiometricType.FINGERPRINT);
         }
       } catch (error) {
         console.error('Error detecting biometric capabilities:', error);
       }
+    }
+
+    // Check if there's a stored credential to determine if user can log in with biometrics
+    try {
+      const hasStoredCredential = localStorage.getItem(this.CREDENTIAL_KEY) !== null;
+      console.log('Has stored biometric credential:', hasStoredCredential);
+    } catch (error) {
+      console.error('Error checking stored credentials:', error);
     }
   }
 
@@ -203,7 +222,6 @@ export class LoginComponent implements OnInit, OnDestroy {
         return 'Sign in with Biometrics';
     }
   }
-
 
   /**
    * Handles the login form submission.
@@ -240,6 +258,64 @@ export class LoginComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Helper: Encode string to Uint8Array
+   */
+  private strToUint8Array(str: string): Uint8Array {
+    return new TextEncoder().encode(str);
+  }
+
+  /**
+   * Helper: Convert ArrayBuffer to Base64 (for storage)
+   */
+  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    bytes.forEach(b => binary += String.fromCharCode(b));
+    return window.btoa(binary);
+  }
+
+  /**
+   * Helper: Convert Base64 to ArrayBuffer
+   */
+  private base64ToArrayBuffer(base64: string): ArrayBuffer {
+    const binary = window.atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+
+  /**
+   * Generate random challenge
+   */
+  private generateChallenge(): Uint8Array {
+    return window.crypto.getRandomValues(new Uint8Array(32));
+  }
+
+  /**
+   * Save credential and token in localStorage
+   */
+  private saveCredentialLocally(credential: PublicKeyCredential): void {
+    const user = this.authService.currentUserSig();
+    const credData = {
+      id: credential.id,
+      type: credential.type,
+      rawId: this.arrayBufferToBase64(credential.rawId),
+      // For a real app, this would be a real token from your backend
+      token: btoa(user?.username || 'demo-user'),
+    };
+
+    try {
+      localStorage.setItem(this.CREDENTIAL_KEY, JSON.stringify(credData));
+      console.log('Credential saved locally.');
+    } catch (error) {
+      console.error('Error saving credential:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Registers the user's biometric credentials after successful login
    */
   registerBiometrics(): void {
@@ -264,20 +340,40 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
-    // Generate a unique user ID for this credential
-    const userId = `user_${Math.random().toString(36).substring(2, 10)}`;
+    try {
+      const challenge = this.generateChallenge();
+      const userId = `user_${Math.random().toString(36).substring(2, 10)}`;
 
-    this.subscription.add(
-      this.biometricAuthService.registerBiometricCredential(
-        user.username,
-        userId
-      ).subscribe({
-        next: () => {
+      // Create WebAuthn credential options
+      const publicKeyOptions: PublicKeyCredentialCreationOptions = {
+        challenge: challenge,
+        rp: {
+          name: 'Bio-Metrics Auth App',
+        },
+        user: {
+          id: this.strToUint8Array(userId),
+          name: user.username,
+          displayName: user.username,
+        },
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }], // ES256 algorithm
+        timeout: 60000,
+        attestation: 'direct',
+      };
+
+      // Start the registration process
+      navigator.credentials.create({ publicKey: publicKeyOptions })
+        .then((credential) => {
+          if (!credential) throw new Error('Credential creation failed');
+
+          // Cast to the correct type
+          const pubKeyCredential = credential as PublicKeyCredential;
+          this.saveCredentialLocally(pubKeyCredential);
+
           console.log('Biometric registration successful');
           this.isLoading.set(false);
           this.errorMessage.set('Biometric credential registered successfully! You can now use biometric authentication.');
-        },
-        error: (error) => {
+        })
+        .catch((error) => {
           console.error('Biometric registration error:', error);
 
           // Check for specific WebAuthn errors
@@ -293,9 +389,12 @@ export class LoginComponent implements OnInit, OnDestroy {
 
           this.errorMessage.set(errorMessage);
           this.isLoading.set(false);
-        }
-      })
-    );
+        });
+    } catch (error: any) {
+      console.error('Error initiating biometric registration:', error);
+      this.errorMessage.set('Failed to initiate biometric registration: ' + error.message);
+      this.isLoading.set(false);
+    }
   }
 
   /**
@@ -306,8 +405,7 @@ export class LoginComponent implements OnInit, OnDestroy {
 
     // Test localStorage first to make sure it's working
     try {
-      const testKey = 'webauthn_test';
-      const storedCredential = localStorage.getItem(this.biometricAuthService['CREDENTIAL_KEY']);
+      const storedCredential = localStorage.getItem(this.CREDENTIAL_KEY);
       if (!storedCredential) {
         this.errorMessage.set('No biometric credential found. Please register first.');
         return;
@@ -322,14 +420,36 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
-    this.subscription.add(
-      this.biometricAuthService.authenticateWithBiometrics().subscribe({
-        next: () => {
+    try {
+      const stored = localStorage.getItem(this.CREDENTIAL_KEY);
+      if (!stored) throw new Error('No credential stored. Please register first.');
+
+      const credData = JSON.parse(stored);
+
+      const publicKeyOptions: PublicKeyCredentialRequestOptions = {
+        challenge: this.generateChallenge(),
+        allowCredentials: [
+          {
+            id: this.base64ToArrayBuffer(credData.rawId),
+            type: 'public-key',
+          },
+        ],
+        timeout: 60000,
+        userVerification: 'required', // forces biometric or PIN
+      };
+
+      navigator.credentials.get({ publicKey: publicKeyOptions })
+        .then((assertion) => {
+          if (!assertion) throw new Error('Authentication failed');
+
           console.log('Biometric authentication successful, navigating to home');
+
+          // For a real app, you would verify the assertion with your backend
+          // Here we just use the stored token from localStorage
           this.isLoading.set(false);
           this.navigationService.navigateToHome();
-        },
-        error: (error) => {
+        })
+        .catch((error) => {
           console.error('Biometric authentication error:', error);
 
           // Check for specific WebAuthn errors
@@ -339,15 +459,16 @@ export class LoginComponent implements OnInit, OnDestroy {
             errorMessage = 'Authentication was declined by the user or the device.';
           } else if (error.name === 'SecurityError') {
             errorMessage = 'The operation is not allowed due to security restrictions.';
-          } else if (error.message && error.message.includes('localStorage')) {
-            errorMessage = 'Cannot access biometric data. Storage might be disabled or full.';
           }
 
           this.errorMessage.set(errorMessage);
           this.isLoading.set(false);
-        }
-      })
-    );
+        });
+    } catch (error: any) {
+      console.error('Error initiating biometric authentication:', error);
+      this.errorMessage.set('Failed to initiate biometric authentication: ' + error.message);
+      this.isLoading.set(false);
+    }
   }
 
   /**
