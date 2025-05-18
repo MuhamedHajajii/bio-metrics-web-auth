@@ -3,13 +3,14 @@
  *
  * This component handles user authentication through a login form with WebAuthn biometric support.
  */
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { RouterModule } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
 import { NavigationService } from '../../services/navigation.service';
 import { BiometricAuthService } from '../../services/biometric-auth.service';
+import { Subscription } from 'rxjs';
 
 /**
  * Enum representing available biometric authentication methods
@@ -36,11 +37,12 @@ export enum BiometricType {
   templateUrl: './login.component.html',
   styleUrl: './login.component.scss'
 })
-export class LoginComponent implements OnInit {
+export class LoginComponent implements OnInit, OnDestroy {
   private fb = inject(FormBuilder);
   private authService = inject(AuthService);
   private navigationService = inject(NavigationService);
   private biometricAuthService = inject(BiometricAuthService);
+  private subscription = new Subscription();
 
   /**
    * Signal to indicate if login is being processed.
@@ -55,10 +57,22 @@ export class LoginComponent implements OnInit {
   protected readonly errorMessage = signal<string | null>(null);
 
   /**
+   * Signal to track if the user is on a mobile or tablet device.
+   * @signal
+   */
+  protected readonly isMobileOrTablet = signal<boolean>(false);
+
+  /**
    * Signal to track if WebAuthn is available on this device.
    * @signal
    */
   protected readonly isWebAuthnSupported = signal<boolean>(false);
+
+  /**
+   * Signal to track if platform authenticator is available.
+   * @signal
+   */
+  protected readonly isPlatformAuthenticatorAvailable = signal<boolean>(false);
 
   /**
    * Signal to track what type of biometric authentication is available.
@@ -84,8 +98,15 @@ export class LoginComponent implements OnInit {
    * Initialize the component
    */
   ngOnInit(): void {
-    this.detectBiometricCapabilities();
+    this.detectDeviceCapabilities();
     this.checkForExistingBiometricToken();
+  }
+
+  /**
+   * Clean up subscriptions when component is destroyed
+   */
+  ngOnDestroy(): void {
+    this.subscription.unsubscribe();
   }
 
   /**
@@ -121,30 +142,36 @@ export class LoginComponent implements OnInit {
   }
 
   /**
-   * Detects available biometric capabilities using WebAuthn
+   * Detects device capabilities including mobile/tablet status and biometric support
    */
-  private detectBiometricCapabilities(): void {
-    // Check if WebAuthn is supported in this browser
-    const isSupported = this.biometricAuthService.isBiometricSupported();
-    this.isWebAuthnSupported.set(isSupported);
-    console.log('WebAuthn supported:', isSupported);
+  private async detectDeviceCapabilities(): Promise<void> {
+    // Check if device is mobile or tablet
+    const isMobileOrTablet = this.biometricAuthService.isMobileOrTablet();
+    this.isMobileOrTablet.set(isMobileOrTablet);
+    console.log('Mobile or tablet device detected:', isMobileOrTablet);
 
-    if (isSupported) {
-      // Determine biometric type based on user agent
-      const userAgent = navigator.userAgent.toLowerCase();
+    // Check if WebAuthn is supported
+    const isWebAuthnSupported = this.biometricAuthService.isBiometricSupported();
+    this.isWebAuthnSupported.set(isWebAuthnSupported);
+    console.log('WebAuthn supported:', isWebAuthnSupported);
 
-      if (userAgent.includes('iphone') || userAgent.includes('ipad') || userAgent.includes('mac')) {
-        // iOS/macOS devices typically have Face ID or Touch ID
-        const isRecent = /iPhone X|iPhone 1[1-9]|iPhone 2[0-9]/.test(navigator.userAgent);
-        this.biometricType.set(isRecent ? BiometricType.FACE : BiometricType.FINGERPRINT);
-      } else if (userAgent.includes('android')) {
-        // Most Android devices have fingerprint sensors
-        this.biometricType.set(BiometricType.FINGERPRINT);
-      } else if (navigator.platform.includes('Win')) {
-        // Windows devices with Windows Hello
-        this.biometricType.set(BiometricType.FACE);
-      } else {
-        this.biometricType.set(BiometricType.OTHER);
+    if (isWebAuthnSupported) {
+      try {
+        // Check if platform authenticator is available
+        const isPlatformAuthAvailable = await this.biometricAuthService.isPlatformAuthenticatorAvailable();
+        this.isPlatformAuthenticatorAvailable.set(isPlatformAuthAvailable);
+        console.log('Platform authenticator available:', isPlatformAuthAvailable);
+
+        if (isPlatformAuthAvailable) {
+          // Get detailed biometric capability information
+          const capabilityInfo = await this.biometricAuthService.getBiometricCapability();
+          if (capabilityInfo.isAvailable && capabilityInfo.type) {
+            this.biometricType.set(capabilityInfo.type as BiometricType);
+            console.log('Biometric type detected:', capabilityInfo.type);
+          }
+        }
+      } catch (error) {
+        console.error('Error detecting biometric capabilities:', error);
       }
     }
   }
@@ -186,7 +213,7 @@ export class LoginComponent implements OnInit {
     this.authService.login(email, password).subscribe({
       next: () => {
         this.isLoading.set(false);
-        this.canRegisterBiometric.set(this.isWebAuthnSupported());
+        this.canRegisterBiometric.set(this.isPlatformAuthenticatorAvailable());
         this.navigationService.navigateToHome();
       },
       error: (error) => {
@@ -213,21 +240,23 @@ export class LoginComponent implements OnInit {
     // Generate a unique user ID for this credential
     const userId = `user_${Math.random().toString(36).substring(2, 10)}`;
 
-    this.biometricAuthService.registerBiometricCredential(
-      user.username,
-      userId
-    ).subscribe({
-      next: () => {
-        console.log('Biometric registration successful');
-        this.isLoading.set(false);
-        this.errorMessage.set(null);
-      },
-      error: (error) => {
-        console.error('Biometric registration error:', error);
-        this.errorMessage.set('Failed to register biometric: ' + error.message);
-        this.isLoading.set(false);
-      }
-    });
+    this.subscription.add(
+      this.biometricAuthService.registerBiometricCredential(
+        user.username,
+        userId
+      ).subscribe({
+        next: () => {
+          console.log('Biometric registration successful');
+          this.isLoading.set(false);
+          this.errorMessage.set(null);
+        },
+        error: (error) => {
+          console.error('Biometric registration error:', error);
+          this.errorMessage.set('Failed to register biometric: ' + error.message);
+          this.isLoading.set(false);
+        }
+      })
+    );
   }
 
   /**
@@ -238,18 +267,20 @@ export class LoginComponent implements OnInit {
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
-    this.biometricAuthService.authenticateWithBiometrics().subscribe({
-      next: () => {
-        console.log('Biometric authentication successful, navigating to home');
-        this.isLoading.set(false);
-        this.navigationService.navigateToHome();
-      },
-      error: (error) => {
-        console.error('Biometric authentication error:', error);
-        this.errorMessage.set('Biometric authentication failed. Please try again or use password.');
-        this.isLoading.set(false);
-      }
-    });
+    this.subscription.add(
+      this.biometricAuthService.authenticateWithBiometrics().subscribe({
+        next: () => {
+          console.log('Biometric authentication successful, navigating to home');
+          this.isLoading.set(false);
+          this.navigationService.navigateToHome();
+        },
+        error: (error) => {
+          console.error('Biometric authentication error:', error);
+          this.errorMessage.set('Biometric authentication failed. Please try again or use password.');
+          this.isLoading.set(false);
+        }
+      })
+    );
   }
 
   /**

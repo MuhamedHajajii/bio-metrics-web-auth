@@ -6,10 +6,11 @@
 import { Injectable, PLATFORM_ID, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { Observable, of, throwError, from } from 'rxjs';
-import { delay, tap, catchError, map } from 'rxjs/operators';
+import { delay, tap, catchError, map, switchMap } from 'rxjs/operators';
 import { AuthService } from './auth.service';
 import { NavigationService } from './navigation.service';
 import { isPlatformBrowser } from '@angular/common';
+import { DeviceDetectorService } from 'ngx-device-detector';
 
 /**
  * Token interface defining the structure of authentication tokens
@@ -21,6 +22,14 @@ interface AuthToken {
   email: string;
   username: string;
   credentialId?: string; // Store WebAuthn credential ID
+}
+
+/**
+ * Device capability information for biometric features
+ */
+interface BiometricCapability {
+  isAvailable: boolean;
+  type: 'fingerprint' | 'face' | 'other' | null;
 }
 
 /**
@@ -38,9 +47,23 @@ export class BiometricAuthService {
   private navigationService = inject(NavigationService);
   private router = inject(Router);
   private platformId = inject(PLATFORM_ID);
+  private deviceService = inject(DeviceDetectorService);
 
   /**
-   * Determines if the current device supports biometric authentication through WebAuthn
+   * Determines if the current device is a mobile phone or tablet
+   *
+   * @returns True if the device is a mobile phone or tablet
+   */
+  isMobileOrTablet(): boolean {
+    if (!isPlatformBrowser(this.platformId)) {
+      return false;
+    }
+
+    return this.deviceService.isMobile() || this.deviceService.isTablet();
+  }
+
+  /**
+   * Determines if the current device supports biometric authentication
    *
    * @returns True if biometric authentication is supported
    */
@@ -50,7 +73,67 @@ export class BiometricAuthService {
     }
 
     // Check if WebAuthn is available in this browser
-    return window.PublicKeyCredential !== undefined;
+    return window.PublicKeyCredential !== undefined && this.isMobileOrTablet();
+  }
+
+  /**
+   * Checks if platform authenticator is available (like fingerprint or Face ID)
+   *
+   * @returns Promise resolving to true if platform authenticator is available
+   */
+  async isPlatformAuthenticatorAvailable(): Promise<boolean> {
+    if (!this.isBiometricSupported()) {
+      return false;
+    }
+
+    try {
+      // This is a modern way to check if platform authenticator is available
+      return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    } catch (error) {
+      console.error('Error checking platform authenticator:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get detailed biometric capability information
+   *
+   * @returns Promise resolving to biometric capability information
+   */
+  async getBiometricCapability(): Promise<BiometricCapability> {
+    if (!this.isBiometricSupported()) {
+      return { isAvailable: false, type: null };
+    }
+
+    try {
+      const isPlatformAuthAvailable = await this.isPlatformAuthenticatorAvailable();
+
+      if (!isPlatformAuthAvailable) {
+        return { isAvailable: false, type: null };
+      }
+
+      // Determine the likely biometric type based on the device
+      const userAgent = navigator.userAgent.toLowerCase();
+      let type: 'fingerprint' | 'face' | 'other' = 'other';
+
+      if (userAgent.includes('iphone') || userAgent.includes('ipad')) {
+        // Modern iPhones have Face ID, older ones have Touch ID
+        type = /iPhone X|iPhone 1[1-9]|iPhone 2[0-9]/.test(navigator.userAgent)
+          ? 'face'
+          : 'fingerprint';
+      } else if (userAgent.includes('android')) {
+        // Most Android devices use fingerprint
+        type = 'fingerprint';
+      } else if (navigator.platform.includes('Win')) {
+        // Windows Hello generally uses facial recognition
+        type = 'face';
+      }
+
+      return { isAvailable: true, type };
+    } catch (error) {
+      console.error('Error determining biometric capability:', error);
+      return { isAvailable: false, type: null };
+    }
   }
 
   /**
@@ -78,62 +161,71 @@ export class BiometricAuthService {
       return throwError(() => new Error('WebAuthn is not supported in this browser'));
     }
 
-    // Generate a random challenge
-    const challenge = this.generateRandomChallenge();
+    // Check if platform authenticator is available
+    return from(this.isPlatformAuthenticatorAvailable()).pipe(
+      switchMap(isPlatformAvailable => {
+        if (!isPlatformAvailable) {
+          return throwError(() => new Error('No platform authenticator (like fingerprint or Face ID) is available'));
+        }
 
-    // Prepare creation options according to WebAuthn spec
-    const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
-      challenge: challenge,
-      rp: {
-        name: "Angular Biometric Auth Demo",
-        id: window.location.hostname
-      },
-      user: {
-        id: new TextEncoder().encode(userId),
-        name: username,
-        displayName: username
-      },
-      pubKeyCredParams: [
-        { type: "public-key", alg: -7 }, // ES256 algorithm
-        { type: "public-key", alg: -257 } // RS256 algorithm
-      ],
-      authenticatorSelection: {
-        authenticatorAttachment: "platform", // Use platform authenticator (like Touch ID or Face ID)
-        userVerification: "required" // Require biometric verification
-      },
-      timeout: 60000,
-      attestation: "none" // Don't require attestation to simplify
-    };
+        // Generate a random challenge
+        const challenge = this.generateRandomChallenge();
 
-    // Call WebAuthn create() method to register the credential
-    return from(navigator.credentials.create({
-      publicKey: publicKeyCredentialCreationOptions
-    }) as Promise<PublicKeyCredential>).pipe(
-      map(credential => {
-        // Store the credential ID for later authentication
-        const rawId = new Uint8Array(credential.rawId);
-        const credentialId = this.bufferToBase64UrlString(rawId);
-
-        // Generate a mock token with the credential ID
-        const token: AuthToken = {
-          token: 'webauthn_auth_' + Math.random().toString(36).substring(2, 15),
-          expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000), // 30 days
-          userId: userId,
-          email: `${username}@example.com`, // Mock email
-          username: username,
-          credentialId: credentialId
+        // Prepare creation options according to WebAuthn spec
+        const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
+          challenge: challenge,
+          rp: {
+            name: "Angular Biometric Auth Demo",
+            id: window.location.hostname
+          },
+          user: {
+            id: new TextEncoder().encode(userId),
+            name: username,
+            displayName: username
+          },
+          pubKeyCredParams: [
+            { type: "public-key", alg: -7 }, // ES256 algorithm
+            { type: "public-key", alg: -257 } // RS256 algorithm
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: "platform", // Use platform authenticator (like Touch ID or Face ID)
+            userVerification: "required" // Require biometric verification
+          },
+          timeout: 60000,
+          attestation: "none" // Don't require attestation to simplify
         };
 
-        // Store the token and credential ID
-        this.storeToken(token);
-        localStorage.setItem(this.CREDENTIAL_KEY, credentialId);
+        // Call WebAuthn create() method to register the credential
+        return from(navigator.credentials.create({
+          publicKey: publicKeyCredentialCreationOptions
+        }) as Promise<PublicKeyCredential>).pipe(
+          map(credential => {
+            // Store the credential ID for later authentication
+            const rawId = new Uint8Array(credential.rawId);
+            const credentialId = this.bufferToBase64UrlString(rawId);
 
-        console.log('Biometric credential registered successfully:', credentialId);
-        return true;
-      }),
-      catchError(error => {
-        console.error('Error registering credential:', error);
-        return throwError(() => new Error('Failed to register biometric credential: ' + error.message));
+            // Generate a mock token with the credential ID
+            const token: AuthToken = {
+              token: 'webauthn_auth_' + Math.random().toString(36).substring(2, 15),
+              expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000), // 30 days
+              userId: userId,
+              email: `${username}@example.com`, // Mock email
+              username: username,
+              credentialId: credentialId
+            };
+
+            // Store the token and credential ID
+            this.storeToken(token);
+            localStorage.setItem(this.CREDENTIAL_KEY, credentialId);
+
+            console.log('Biometric credential registered successfully:', credentialId);
+            return true;
+          }),
+          catchError(error => {
+            console.error('Error registering credential:', error);
+            return throwError(() => new Error('Failed to register biometric credential: ' + error.message));
+          })
+        );
       })
     );
   }

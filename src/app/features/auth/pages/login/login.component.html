@@ -15,6 +15,14 @@
       </p>
     </div>
 
+    <!-- Device Detection Info (Displayed for development purposes) -->
+    <div *ngIf="isMobileOrTablet() || isWebAuthnSupported()" class="bg-blue-50 p-3 rounded-md text-sm mb-2">
+      <div><strong>Device:</strong> {{ isMobileOrTablet() ? 'Mobile/Tablet' : 'Desktop' }}</div>
+      <div><strong>WebAuthn:</strong> {{ isWebAuthnSupported() ? 'Supported' : 'Not supported' }}</div>
+      <div><strong>Platform Auth:</strong> {{ isPlatformAuthenticatorAvailable() ? 'Available' : 'Not available' }}</div>
+      <div><strong>Type:</strong> {{ biometricType() }}</div>
+    </div>
+
     <!-- Error message display -->
     <div *ngIf="errorMessage()" class="bg-red-50 border-l-4 border-red-400 p-4 mb-6">
       <div class="flex">
@@ -101,8 +109,8 @@
       </button>
     </div>
 
-    <!-- Biometric Authentication Option -->
-    <div *ngIf="isWebAuthnSupported()" class="mt-6">
+    <!-- Biometric Authentication Option (only for mobile devices with platform authenticator) -->
+    <div *ngIf="isMobileOrTablet() && isPlatformAuthenticatorAvailable()" class="mt-6">
       <div class="relative">
         <div class="absolute inset-0 flex items-center">
           <div class="w-full border-t border-gray-300"></div>

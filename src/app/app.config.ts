@@ -26,6 +26,7 @@ import { provideStorage } from '@angular/fire/storage';
 
 import { BiometricAuthService } from './features/auth/services/biometric-auth.service';
 import { NavigationService } from './features/auth/services/navigation.service';
+import { DeviceDetectorService } from 'ngx-device-detector';
 
 // Function to check for biometric token on app initialization
 export function biometricTokenInitializer(
@@ -70,6 +71,7 @@ export const appConfig: ApplicationConfig = {
       useFactory: biometricTokenInitializer,
       deps: [BiometricAuthService, NavigationService],
       multi: true
-    }
+    },
+    DeviceDetectorService
   ]
 };
