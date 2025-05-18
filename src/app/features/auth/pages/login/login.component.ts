@@ -9,6 +9,7 @@ import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { RouterModule } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
 import { NavigationService } from '../../services/navigation.service';
+import { BiometricAuthService } from '../../services/biometric-auth.service';
 
 /**
  * Enum representing available biometric authentication methods
@@ -39,6 +40,7 @@ export class LoginComponent implements OnInit {
   private fb = inject(FormBuilder);
   private authService = inject(AuthService);
   private navigationService = inject(NavigationService);
+  private biometricAuthService = inject(BiometricAuthService);
 
   /**
    * Signal to indicate if login is being processed.
@@ -78,6 +80,29 @@ export class LoginComponent implements OnInit {
   ngOnInit(): void {
     this.detectMobile();
     this.detectBiometricCapabilities();
+    this.checkForExistingBiometricToken();
+  }
+
+  /**
+   * Checks if there's an existing valid biometric token
+   * and automatically logs in if one exists
+   */
+  private checkForExistingBiometricToken(): void {
+    if (this.biometricAuthService.hasBiometricToken()) {
+      // Show loading state
+      this.isLoading.set(true);
+
+      // Attempt login with stored token
+      if (this.biometricAuthService.loginWithStoredToken()) {
+        // Simulate a brief delay for better UX
+        setTimeout(() => {
+          this.isLoading.set(false);
+          this.navigationService.navigateToHome();
+        }, 1000);
+      } else {
+        this.isLoading.set(false);
+      }
+    }
   }
 
   /**
@@ -86,7 +111,7 @@ export class LoginComponent implements OnInit {
   private detectMobile(): void {
     // Basic mobile detection
     if (typeof window !== 'undefined') {
-      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const isMobileDevice = this.biometricAuthService.isBiometricSupported();
       this.isMobile.set(isMobileDevice);
     }
   }
@@ -168,13 +193,17 @@ export class LoginComponent implements OnInit {
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
-    // In a real app, this would integrate with WebAuthn API or a native bridge
-    // For demo purposes, we'll simulate a successful authentication after a delay
-    setTimeout(() => {
-      // Simulate successful login
-      this.isLoading.set(false);
-      this.navigationService.navigateToHome();
-    }, 1500);
+    this.biometricAuthService.authenticateWithBiometrics().subscribe({
+      next: () => {
+        this.isLoading.set(false);
+        this.navigationService.navigateToHome();
+      },
+      error: (error) => {
+        console.error('Biometric authentication error:', error);
+        this.errorMessage.set('Biometric authentication failed. Please try again or use password.');
+        this.isLoading.set(false);
+      }
+    });
   }
 
   /**

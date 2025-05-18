@@ -8,7 +8,7 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, signal } from '@angular/core';
 import { Auth, createUserWithEmailAndPassword, updateProfile, user } from '@angular/fire/auth';
 import { IUser } from '../interfaces/IUser';
-import { Observable, from, tap, of, throwError } from 'rxjs';
+import { Observable, from, tap, of, throwError, BehaviorSubject } from 'rxjs';
 import { signInWithEmailAndPassword, signOut, User, updatePassword } from 'firebase/auth';
 
 /**
@@ -34,6 +34,31 @@ export class AuthService {
    * @signal
    */
   currentUserSig = signal<IUser | null | undefined>(undefined);
+
+  /**
+   * BehaviorSubject to track biometric authentication state
+   * This allows us to authenticate without Firebase credentials
+   */
+  private biometricUser = new BehaviorSubject<IUser | null>(null);
+
+  /**
+   * Combined observable that merges Firebase and biometric authentication
+   */
+  get authenticatedUser$(): Observable<IUser | null> {
+    return this.biometricUser.asObservable();
+  }
+
+  constructor() {
+    // Subscribe to Firebase auth changes to update biometricUser
+    this.user$.subscribe(firebaseUser => {
+      if (firebaseUser) {
+        this.biometricUser.next({
+          email: firebaseUser.email || '',
+          username: firebaseUser.displayName || ''
+        });
+      }
+    });
+  }
 
   /**
    * Registers a new user with email and password.
@@ -76,10 +101,33 @@ export class AuthService {
               email: firebaseUser.email!,
               username: firebaseUser.displayName!
             });
+
+            // Also update the biometric user
+            this.biometricUser.next({
+              email: firebaseUser.email!,
+              username: firebaseUser.displayName!
+            });
           }
         });
       })
     );
+  }
+
+  /**
+   * Sets the authenticated user from a token (for biometric auth)
+   *
+   * @param userId The user ID from the token
+   */
+  setAuthenticatedUserFromToken(userId: string): void {
+    // In a real app, we would validate the token with the server
+    // and get the actual user data. For this demo, we'll create a mock user.
+    const mockUser: IUser = {
+      email: `${userId}@example.com`,
+      username: `User ${userId.slice(-4)}`
+    };
+
+    this.currentUserSig.set(mockUser);
+    this.biometricUser.next(mockUser);
   }
 
   /**
@@ -135,6 +183,7 @@ export class AuthService {
     signOut(this.fire).then(() => {
       // Reset current user signal when logged out
       this.currentUserSig.set(null);
+      this.biometricUser.next(null);
     });
   }
 }

@@ -5,7 +5,7 @@
  * including routing, client hydration, HTTP client, animations,
  * and Firebase integration.
  */
-import { ApplicationConfig, importProvidersFrom } from '@angular/core';
+import { ApplicationConfig, importProvidersFrom, APP_INITIALIZER } from '@angular/core';
 import { provideRouter, withHashLocation } from '@angular/router';
 
 import { routes } from './app.routes';
@@ -24,6 +24,24 @@ import { provideAuth } from '@angular/fire/auth';
 import { provideFirestore } from '@angular/fire/firestore';
 import { provideStorage } from '@angular/fire/storage';
 
+import { BiometricAuthService } from './features/auth/services/biometric-auth.service';
+import { NavigationService } from './features/auth/services/navigation.service';
+
+// Function to check for biometric token on app initialization
+export function biometricTokenInitializer(
+  biometricAuthService: BiometricAuthService,
+  navigationService: NavigationService
+) {
+  return () => {
+    // If there's a valid biometric token, we can perform actions
+    // like pre-loading user data or redirecting to the home page
+    if (biometricAuthService.hasBiometricToken()) {
+      biometricAuthService.loginWithStoredToken();
+      return Promise.resolve(true);
+    }
+    return Promise.resolve(true);
+  };
+}
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -38,6 +56,12 @@ export const appConfig: ApplicationConfig = {
         provideFirestore(() => getFirestore()),
         provideStorage(() => getStorage()),
       ]
-    )
+    ),
+    {
+      provide: APP_INITIALIZER,
+      useFactory: biometricTokenInitializer,
+      deps: [BiometricAuthService, NavigationService],
+      multi: true
+    }
   ]
 };

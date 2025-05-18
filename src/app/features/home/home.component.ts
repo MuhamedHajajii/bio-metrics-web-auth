@@ -3,11 +3,12 @@
  *
  * This component displays the main landing page for authenticated users.
  */
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { AuthService } from '../auth/services/auth.service';
 import { NavigationService } from '../auth/services/navigation.service';
+import { BiometricAuthService } from '../auth/services/biometric-auth.service';
 import { IUser } from '../auth/interfaces/IUser';
 
 /**
@@ -25,9 +26,10 @@ import { IUser } from '../auth/interfaces/IUser';
   templateUrl: './home.component.html',
   styleUrl: './home.component.scss'
 })
-export class HomeComponent {
+export class HomeComponent implements OnInit {
   private authService = inject(AuthService);
   private navigationService = inject(NavigationService);
+  private biometricAuthService = inject(BiometricAuthService);
 
   /**
    * Signal to store the current user data.
@@ -41,31 +43,62 @@ export class HomeComponent {
    */
   protected readonly isLoading = signal<boolean>(true);
 
+  /**
+   * Signal to indicate if the user was authenticated via biometrics.
+   * @signal
+   */
+  protected readonly isBiometricAuth = signal<boolean>(false);
+
+  /**
+   * Initializes the component and loads user data.
+   */
   ngOnInit(): void {
-    this.authService.user$.subscribe({
-      next: (firebaseUser) => {
-        if (firebaseUser) {
-          this.user.set({
-            email: firebaseUser.email || '',
-            username: firebaseUser.displayName || ''
-          });
+    // Check for biometric authentication first
+    this.isBiometricAuth.set(this.biometricAuthService.hasBiometricToken());
+
+    // Subscribe to the authenticated user from either source
+    this.authService.authenticatedUser$.subscribe({
+      next: (userData) => {
+        if (userData) {
+          this.user.set(userData);
+          this.isLoading.set(false);
         } else {
-          // No user is logged in, redirect to login
-          this.navigationService.navigateToLogin();
+          // Fall back to Firebase auth
+          this.authService.user$.subscribe({
+            next: (firebaseUser) => {
+              if (firebaseUser) {
+                this.user.set({
+                  email: firebaseUser.email || '',
+                  username: firebaseUser.displayName || ''
+                });
+              } else {
+                // No user is logged in, redirect to login
+                this.navigationService.navigateToLogin();
+              }
+              this.isLoading.set(false);
+            },
+            error: (error) => {
+              console.error('Error checking authentication:', error);
+              this.isLoading.set(false);
+              this.navigationService.navigateToLogin();
+            }
+          });
         }
-        this.isLoading.set(false);
-      },
-      error: (error) => {
-        console.error('Error checking authentication:', error);
-        this.isLoading.set(false);
       }
     });
   }
 
   /**
    * Logs the user out and redirects to login page.
+   * Also clears any biometric authentication tokens.
    */
   logout(): void {
+    // Clear biometric token if it exists
+    if (this.isBiometricAuth()) {
+      this.biometricAuthService.clearBiometricToken();
+    }
+
+    // Logout from Firebase
     this.authService.logout();
     this.navigationService.navigateToLogin();
   }
