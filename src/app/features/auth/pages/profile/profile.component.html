@@ -1,0 +1,109 @@
+<div class="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-4xl mx-auto">
+    <!-- Profile Header -->
+    <div class="bg-white shadow overflow-hidden sm:rounded-lg mb-6">
+      <div class="px-4 py-5 sm:px-6 flex justify-between items-center">
+        <div>
+          <h3 class="text-lg leading-6 font-medium text-gray-900">User Profile</h3>
+          <p class="mt-1 max-w-2xl text-sm text-gray-500">Personal details and account settings</p>
+        </div>
+        <button (click)="logout()"
+          class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 001 1h12a1 1 0 001-1V7.414l-4-4H3zm9 2.586L15.414 9H12V5.586z" clip-rule="evenodd" />
+            <path d="M12 7a1 1 0 01-1-1V3.414l4 4L12 7z" />
+            <path fill-rule="evenodd" d="M11 14a1 1 0 11-2 0 1 1 0 012 0zm-8-7a1 1 0 011-1h3a1 1 0 110 2H4a1 1 0 01-1-1zm0 3a1 1 0 011-1h3a1 1 0 110 2H4a1 1 0 01-1-1zm9-3a1 1 0 011-1h3a1 1 0 110 2h-3a1 1 0 01-1-1zm0 3a1 1 0 011-1h3a1 1 0 110 2h-3a1 1 0 01-1-1z" clip-rule="evenodd" />
+          </svg>
+          Sign Out
+        </button>
+      </div>
+    </div>
+
+    <!-- Loading State -->
+    <div *ngIf="isLoading()" class="flex justify-center py-12">
+      <svg class="animate-spin h-10 w-10 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+    </div>
+
+    <!-- Profile Content -->
+    <div *ngIf="!isLoading() && user()" class="bg-white shadow overflow-hidden sm:rounded-lg">
+      <!-- Messages -->
+      <div *ngIf="errorMessage()" class="bg-red-50 border-l-4 border-red-400 p-4 mb-6">
+        <div class="flex">
+          <div class="flex-shrink-0">
+            <svg class="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+            </svg>
+          </div>
+          <div class="ml-3">
+            <p class="text-sm text-red-700">{{ errorMessage() }}</p>
+          </div>
+        </div>
+      </div>
+
+      <div *ngIf="successMessage()" class="bg-green-50 border-l-4 border-green-400 p-4 mb-6">
+        <div class="flex">
+          <div class="flex-shrink-0">
+            <svg class="h-5 w-5 text-green-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+          </div>
+          <div class="ml-3">
+            <p class="text-sm text-green-700">{{ successMessage() }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Account Information -->
+      <div class="border-t border-gray-200">
+        <dl>
+          <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+            <dt class="text-sm font-medium text-gray-500">Email address</dt>
+            <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">{{ user()?.email }}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <!-- Edit Profile Form -->
+      <div class="px-4 py-5 sm:px-6">
+        <h4 class="text-lg font-medium text-gray-900 mb-4">Edit Profile</h4>
+        <form [formGroup]="profileForm" (ngSubmit)="onSubmit()">
+          <div class="mb-4">
+            <label for="username" class="block text-sm font-medium text-gray-700">Username</label>
+            <div class="mt-1">
+              <input type="text" id="username" formControlName="username"
+                class="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md">
+            </div>
+            <p *ngIf="profileForm.get('username')?.invalid && (profileForm.get('username')?.dirty || profileForm.get('username')?.touched)"
+              class="mt-1 text-xs text-red-500">
+              <span *ngIf="profileForm.get('username')?.errors?.['required']">Username is required</span>
+              <span *ngIf="profileForm.get('username')?.errors?.['minlength']">Username must be at least 3 characters</span>
+            </p>
+          </div>
+
+          <div class="mb-4">
+            <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
+            <div class="mt-1">
+              <input type="email" id="email" formControlName="email"
+                class="bg-gray-100 shadow-sm block w-full sm:text-sm border-gray-300 rounded-md cursor-not-allowed">
+            </div>
+            <p class="mt-1 text-xs text-gray-500">Email cannot be changed</p>
+          </div>
+
+          <div class="flex justify-end">
+            <button type="submit" [disabled]="profileForm.invalid || isSaving()"
+              class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50">
+              <svg *ngIf="isSaving()" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              {{ isSaving() ? 'Saving...' : 'Save Changes' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>

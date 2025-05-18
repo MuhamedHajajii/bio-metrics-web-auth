@@ -1,0 +1,94 @@
+/**
+ * @fileoverview Styles for the LoginComponent.
+ *
+ * Provides basic styling for the login container, buttons, and messages.
+ * These styles use Tailwind CSS v4 conventions where applicable (though direct Tailwind classes are not used here without setup).
+ */
+
+/*
+ * Login Component Styles
+ * Using Tailwind CSS for most styling, this file is mainly for custom overrides
+ */
+
+/*
+ * Login Container Styling
+ * Centers the login form on the page and provides basic layout.
+ */
+.login-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+  box-sizing: border-box;
+  font-family: sans-serif; /* Basic font */
+}
+
+.login-container h2 {
+  margin-bottom: 24px;
+  font-size: 2em;
+  color: #333;
+}
+
+/*
+ * Button Styling
+ * Styles for the Face ID login button and general button states.
+ */
+.face-id-button {
+  background-color: #007bff; /* Primary button color */
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  font-size: 1em;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  margin-bottom: 16px;
+}
+
+.face-id-button:hover {
+  background-color: #0056b3;
+}
+
+.face-id-button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+
+/*
+ * Message Styling
+ * Styles for error messages and informational text.
+ */
+.error-message {
+  color: #dc3545; /* Error color */
+  margin-top: 16px;
+  padding: 8px;
+  border: 1px solid #dc3545;
+  border-radius: 4px;
+  background-color: #f8d7da;
+}
+
+.info-text {
+  color: #6c757d; /* Muted text color */
+  margin-top: 16px;
+  font-style: italic;
+}
+
+/*
+ * Placeholder Styling
+ * Styles for the placeholder section of a standard login form.
+ */
+.standard-login-placeholder {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px dashed #dddddd;
+  border-radius: 4px;
+  text-align: center;
+  width: 100%;
+  max-width: 300px; /* Limit width of placeholder */
+}
+
+.standard-login-placeholder p {
+  color: #6c757d;
+}
