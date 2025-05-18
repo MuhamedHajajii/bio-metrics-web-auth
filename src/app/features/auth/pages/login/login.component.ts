@@ -1,7 +1,7 @@
 /**
  * @fileoverview Login component implementation.
  *
- * This component handles user authentication through a login form.
+ * This component handles user authentication through a login form with WebAuthn biometric support.
  */
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -24,7 +24,7 @@ export enum BiometricType {
 /**
  * LoginComponent
  *
- * Provides a form for users to authenticate with email and password.
+ * Provides a form for users to authenticate with email and password or biometrics.
  *
  * @example
  * <app-login></app-login>
@@ -55,16 +55,22 @@ export class LoginComponent implements OnInit {
   protected readonly errorMessage = signal<string | null>(null);
 
   /**
-   * Signal to track if the user is on a mobile device.
+   * Signal to track if WebAuthn is available on this device.
    * @signal
    */
-  protected readonly isMobile = signal<boolean>(false);
+  protected readonly isWebAuthnSupported = signal<boolean>(false);
 
   /**
    * Signal to track what type of biometric authentication is available.
    * @signal
    */
   protected readonly biometricType = signal<BiometricType>(BiometricType.NONE);
+
+  /**
+   * Signal to track if biometric registration is available.
+   * @signal
+   */
+  protected readonly canRegisterBiometric = signal<boolean>(false);
 
   /**
    * The login form with validation.
@@ -78,7 +84,6 @@ export class LoginComponent implements OnInit {
    * Initialize the component
    */
   ngOnInit(): void {
-    this.detectMobile();
     this.detectBiometricCapabilities();
     this.checkForExistingBiometricToken();
   }
@@ -116,32 +121,28 @@ export class LoginComponent implements OnInit {
   }
 
   /**
-   * Detects if the current device is mobile
-   */
-  private detectMobile(): void {
-    // Use the biometricAuthService to check for support
-    const isBiometricSupported = this.biometricAuthService.isBiometricSupported();
-    this.isMobile.set(isBiometricSupported);
-    console.log('Biometric authentication supported:', isBiometricSupported);
-  }
-
-  /**
-   * Detects available biometric capabilities
-   * This is a simplified detection - in a real app, we would use feature detection
-   * with the WebAuthn/FIDO2 API or a specialized native bridge
+   * Detects available biometric capabilities using WebAuthn
    */
   private detectBiometricCapabilities(): void {
-    // Simple OS-based detection (not accurate for real implementation)
-    if (this.isMobile()) {
+    // Check if WebAuthn is supported in this browser
+    const isSupported = this.biometricAuthService.isBiometricSupported();
+    this.isWebAuthnSupported.set(isSupported);
+    console.log('WebAuthn supported:', isSupported);
+
+    if (isSupported) {
+      // Determine biometric type based on user agent
       const userAgent = navigator.userAgent.toLowerCase();
 
-      if (userAgent.includes('iphone') || userAgent.includes('ipad')) {
-        // iOS devices typically have Face ID or Touch ID
+      if (userAgent.includes('iphone') || userAgent.includes('ipad') || userAgent.includes('mac')) {
+        // iOS/macOS devices typically have Face ID or Touch ID
         const isRecent = /iPhone X|iPhone 1[1-9]|iPhone 2[0-9]/.test(navigator.userAgent);
         this.biometricType.set(isRecent ? BiometricType.FACE : BiometricType.FINGERPRINT);
       } else if (userAgent.includes('android')) {
         // Most Android devices have fingerprint sensors
         this.biometricType.set(BiometricType.FINGERPRINT);
+      } else if (navigator.platform.includes('Win')) {
+        // Windows devices with Windows Hello
+        this.biometricType.set(BiometricType.FACE);
       } else {
         this.biometricType.set(BiometricType.OTHER);
       }
@@ -185,6 +186,7 @@ export class LoginComponent implements OnInit {
     this.authService.login(email, password).subscribe({
       next: () => {
         this.isLoading.set(false);
+        this.canRegisterBiometric.set(this.isWebAuthnSupported());
         this.navigationService.navigateToHome();
       },
       error: (error) => {
@@ -196,7 +198,40 @@ export class LoginComponent implements OnInit {
   }
 
   /**
-   * Handles biometric authentication for mobile devices
+   * Registers the user's biometric credentials after successful login
+   */
+  registerBiometrics(): void {
+    const user = this.authService.currentUserSig();
+    if (!user) {
+      this.errorMessage.set('You must be logged in to register biometrics');
+      return;
+    }
+
+    this.isLoading.set(true);
+    this.errorMessage.set(null);
+
+    // Generate a unique user ID for this credential
+    const userId = `user_${Math.random().toString(36).substring(2, 10)}`;
+
+    this.biometricAuthService.registerBiometricCredential(
+      user.username,
+      userId
+    ).subscribe({
+      next: () => {
+        console.log('Biometric registration successful');
+        this.isLoading.set(false);
+        this.errorMessage.set(null);
+      },
+      error: (error) => {
+        console.error('Biometric registration error:', error);
+        this.errorMessage.set('Failed to register biometric: ' + error.message);
+        this.isLoading.set(false);
+      }
+    });
+  }
+
+  /**
+   * Handles biometric authentication using WebAuthn
    */
   loginWithBiometrics(): void {
     console.log('Attempting biometric authentication...');
