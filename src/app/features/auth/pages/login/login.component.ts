@@ -87,6 +87,12 @@ export class LoginComponent implements OnInit, OnDestroy {
   protected readonly canRegisterBiometric = signal<boolean>(false);
 
   /**
+   * Signal to track if mock biometric mode is enabled
+   * @signal
+   */
+  protected readonly isMockBiometricMode = signal<boolean>(false);
+
+  /**
    * The login form with validation.
    */
   protected loginForm = this.fb.group({
@@ -100,6 +106,14 @@ export class LoginComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.detectDeviceCapabilities();
     this.checkForExistingBiometricToken();
+
+    // Check if mock mode is enabled
+    try {
+      const mockMode = localStorage.getItem('biometric_mock_mode');
+      this.isMockBiometricMode.set(mockMode === 'true');
+    } catch (error) {
+      console.error('Error checking mock biometric mode:', error);
+    }
   }
 
   /**
@@ -191,6 +205,55 @@ export class LoginComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Toggle mock biometric mode for testing
+   */
+  toggleMockBiometricMode(): void {
+    const newValue = !this.isMockBiometricMode();
+    this.isMockBiometricMode.set(newValue);
+    this.biometricAuthService.enableMockBiometrics(newValue);
+
+    // Refresh capabilities after toggling
+    this.detectDeviceCapabilities();
+
+    this.errorMessage.set(newValue
+      ? 'Mock biometric mode enabled. You can now use biometric authentication in this browser for testing.'
+      : 'Mock biometric mode disabled. Using real biometric hardware if available.');
+  }
+
+  /**
+   * Tests localStorage functionality directly
+   */
+  testLocalStorage(): void {
+    try {
+      const testKey = 'test_login_storage';
+      const testValue = 'test_value_' + new Date().getTime();
+
+      console.log('Testing localStorage with key:', testKey, 'value:', testValue);
+
+      // Try to write to localStorage
+      localStorage.setItem(testKey, testValue);
+
+      // Try to read from localStorage
+      const readValue = localStorage.getItem(testKey);
+      console.log('Read value from localStorage:', readValue);
+
+      // Clean up
+      localStorage.removeItem(testKey);
+
+      if (readValue === testValue) {
+        console.log('localStorage test passed!');
+        this.errorMessage.set('localStorage test successful!');
+      } else {
+        console.error('localStorage test failed - value mismatch');
+        this.errorMessage.set('localStorage test failed - value mismatch');
+      }
+    } catch (error: any) {
+      console.error('Error testing localStorage:', error);
+      this.errorMessage.set('localStorage error: ' + (error.message || 'Unknown error'));
+    }
+  }
+
+  /**
    * Handles the login form submission.
    */
   onSubmit(): void {
@@ -234,6 +297,18 @@ export class LoginComponent implements OnInit, OnDestroy {
       return;
     }
 
+    // Test localStorage first to make sure it's working
+    try {
+      const testKey = 'webauthn_test';
+      localStorage.setItem(testKey, 'test');
+      localStorage.removeItem(testKey);
+    } catch (error: any) {
+      console.error('localStorage error before biometric registration:', error);
+      this.errorMessage.set('Cannot register biometrics: localStorage is not available. ' +
+        'This could be due to private browsing mode, cookies being disabled, or storage limits.');
+      return;
+    }
+
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
@@ -248,11 +323,23 @@ export class LoginComponent implements OnInit, OnDestroy {
         next: () => {
           console.log('Biometric registration successful');
           this.isLoading.set(false);
-          this.errorMessage.set(null);
+          this.errorMessage.set('Biometric credential registered successfully! You can now use biometric authentication.');
         },
         error: (error) => {
           console.error('Biometric registration error:', error);
-          this.errorMessage.set('Failed to register biometric: ' + error.message);
+
+          // Check for specific WebAuthn errors
+          let errorMessage = 'Failed to register biometric: ' + error.message;
+
+          if (error.name === 'NotAllowedError') {
+            errorMessage = 'Registration was declined by the user or the device.';
+          } else if (error.name === 'SecurityError') {
+            errorMessage = 'The operation is not allowed due to security restrictions.';
+          } else if (error.message && error.message.includes('localStorage')) {
+            errorMessage = 'Cannot save biometric data. Storage might be disabled or full.';
+          }
+
+          this.errorMessage.set(errorMessage);
           this.isLoading.set(false);
         }
       })
@@ -264,6 +351,22 @@ export class LoginComponent implements OnInit, OnDestroy {
    */
   loginWithBiometrics(): void {
     console.log('Attempting biometric authentication...');
+
+    // Test localStorage first to make sure it's working
+    try {
+      const testKey = 'webauthn_test';
+      const storedCredential = localStorage.getItem(this.biometricAuthService['CREDENTIAL_KEY']);
+      if (!storedCredential) {
+        this.errorMessage.set('No biometric credential found. Please register first.');
+        return;
+      }
+    } catch (error: any) {
+      console.error('localStorage error before biometric authentication:', error);
+      this.errorMessage.set('Cannot authenticate: localStorage is not available. ' +
+        'This could be due to private browsing mode, cookies being disabled, or storage limits.');
+      return;
+    }
+
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
@@ -276,7 +379,19 @@ export class LoginComponent implements OnInit, OnDestroy {
         },
         error: (error) => {
           console.error('Biometric authentication error:', error);
-          this.errorMessage.set('Biometric authentication failed. Please try again or use password.');
+
+          // Check for specific WebAuthn errors
+          let errorMessage = 'Biometric authentication failed. Please try again or use password.';
+
+          if (error.name === 'NotAllowedError') {
+            errorMessage = 'Authentication was declined by the user or the device.';
+          } else if (error.name === 'SecurityError') {
+            errorMessage = 'The operation is not allowed due to security restrictions.';
+          } else if (error.message && error.message.includes('localStorage')) {
+            errorMessage = 'Cannot access biometric data. Storage might be disabled or full.';
+          }
+
+          this.errorMessage.set(errorMessage);
           this.isLoading.set(false);
         }
       })

@@ -2,11 +2,12 @@
  * @fileoverview Biometric authentication service using WebAuthn API.
  *
  * Handles biometric authentication via fingerprint or Face ID without requiring backend integration.
+ * Includes a fallback mock implementation for testing when WebAuthn isn't available.
  */
 import { Injectable, PLATFORM_ID, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { Observable, of, throwError, from } from 'rxjs';
-import { delay, tap, catchError, map, switchMap } from 'rxjs/operators';
+import { delay, tap, catchError, map, switchMap, finalize } from 'rxjs/operators';
 import { AuthService } from './auth.service';
 import { NavigationService } from './navigation.service';
 import { isPlatformBrowser } from '@angular/common';
@@ -36,6 +37,7 @@ interface BiometricCapability {
  * BiometricAuthService
  *
  * Manages biometric authentication using WebAuthn API for seamless fingerprint/Face ID login.
+ * Includes fallback mock implementation for testing when WebAuthn isn't available.
  */
 @Injectable({
   providedIn: 'root'
@@ -43,11 +45,71 @@ interface BiometricCapability {
 export class BiometricAuthService {
   private readonly TOKEN_KEY = 'biometric_auth_token';
   private readonly CREDENTIAL_KEY = 'webauthn_credential_id';
+  private readonly MOCK_MODE_KEY = 'biometric_mock_mode';
   private authService = inject(AuthService);
   private navigationService = inject(NavigationService);
   private router = inject(Router);
   private platformId = inject(PLATFORM_ID);
   private deviceService = inject(DeviceDetectorService);
+
+  // Flag to use mock implementation when WebAuthn isn't working
+  private useMockImplementation = false;
+
+  constructor() {
+    // Check if we can access localStorage
+    this.testLocalStorage();
+
+    // Check if mock mode was previously enabled
+    if (isPlatformBrowser(this.platformId)) {
+      try {
+        const mockMode = localStorage.getItem(this.MOCK_MODE_KEY);
+        this.useMockImplementation = mockMode === 'true';
+        console.log('Mock biometric mode:', this.useMockImplementation);
+      } catch (error: any) {
+        console.error('Error checking mock mode:', error);
+      }
+    }
+  }
+
+  /**
+   * Enable or disable mock biometric implementation
+   *
+   * @param enable Whether to enable mock mode
+   */
+  enableMockBiometrics(enable: boolean): void {
+    this.useMockImplementation = enable;
+    try {
+      localStorage.setItem(this.MOCK_MODE_KEY, enable ? 'true' : 'false');
+      console.log('Mock biometric mode set to:', enable);
+    } catch (error: any) {
+      console.error('Error setting mock mode:', error);
+    }
+  }
+
+  /**
+   * Tests if localStorage is accessible
+   */
+  private testLocalStorage(): void {
+    if (!isPlatformBrowser(this.platformId)) {
+      console.log('Not a browser environment, localStorage not available');
+      return;
+    }
+
+    try {
+      // Try to write and read from localStorage
+      localStorage.setItem('test_storage', 'test');
+      const testValue = localStorage.getItem('test_storage');
+      localStorage.removeItem('test_storage');
+
+      if (testValue === 'test') {
+        console.log('localStorage is working correctly');
+      } else {
+        console.error('localStorage set/get test failed');
+      }
+    } catch (error: any) {
+      console.error('Error accessing localStorage:', error);
+    }
+  }
 
   /**
    * Determines if the current device is a mobile phone or tablet
@@ -65,31 +127,46 @@ export class BiometricAuthService {
   /**
    * Determines if the current device supports biometric authentication
    *
-   * @returns True if biometric authentication is supported
+   * @returns True if biometric authentication is supported or mock mode is enabled
    */
   isBiometricSupported(): boolean {
+    if (this.useMockImplementation) {
+      console.log('Using mock biometric implementation');
+      return true;
+    }
+
     if (!isPlatformBrowser(this.platformId)) {
       return false;
     }
 
     // Check if WebAuthn is available in this browser
-    return window.PublicKeyCredential !== undefined && this.isMobileOrTablet();
+    const isSupported = window.PublicKeyCredential !== undefined;
+    console.log('WebAuthn API supported:', isSupported);
+    return isSupported;
   }
 
   /**
    * Checks if platform authenticator is available (like fingerprint or Face ID)
    *
-   * @returns Promise resolving to true if platform authenticator is available
+   * @returns Promise resolving to true if platform authenticator is available or mock mode is enabled
    */
   async isPlatformAuthenticatorAvailable(): Promise<boolean> {
+    if (this.useMockImplementation) {
+      console.log('Mock biometric platform authenticator is available');
+      return true;
+    }
+
     if (!this.isBiometricSupported()) {
+      console.log('Biometric not supported, skipping platform authenticator check');
       return false;
     }
 
     try {
       // This is a modern way to check if platform authenticator is available
-      return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    } catch (error) {
+      const isAvailable = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      console.log('Platform authenticator available:', isAvailable);
+      return isAvailable;
+    } catch (error: any) {
       console.error('Error checking platform authenticator:', error);
       return false;
     }
@@ -101,6 +178,25 @@ export class BiometricAuthService {
    * @returns Promise resolving to biometric capability information
    */
   async getBiometricCapability(): Promise<BiometricCapability> {
+    if (this.useMockImplementation) {
+      // For mock mode, return the device-appropriate biometric type
+      const userAgent = navigator.userAgent.toLowerCase();
+      let type: 'fingerprint' | 'face' | 'other' = 'other';
+
+      if (userAgent.includes('iphone') || userAgent.includes('ipad')) {
+        type = /iPhone X|iPhone 1[1-9]|iPhone 2[0-9]/.test(navigator.userAgent)
+          ? 'face'
+          : 'fingerprint';
+      } else if (userAgent.includes('android')) {
+        type = 'fingerprint';
+      } else if (navigator.platform.includes('Win')) {
+        type = 'face';
+      }
+
+      console.log('Mock biometric type:', type);
+      return { isAvailable: true, type };
+    }
+
     if (!this.isBiometricSupported()) {
       return { isAvailable: false, type: null };
     }
@@ -129,8 +225,9 @@ export class BiometricAuthService {
         type = 'face';
       }
 
+      console.log('Detected biometric type:', type);
       return { isAvailable: true, type };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error determining biometric capability:', error);
       return { isAvailable: false, type: null };
     }
@@ -143,10 +240,15 @@ export class BiometricAuthService {
    */
   hasBiometricToken(): boolean {
     const tokenData = this.getStoredToken();
-    if (!tokenData) return false;
+    if (!tokenData) {
+      console.log('No token found in localStorage');
+      return false;
+    }
 
     // Check if token is expired
-    return tokenData.expiresAt > Date.now();
+    const isValid = tokenData.expiresAt > Date.now();
+    console.log('Token found, valid:', isValid, 'expires:', new Date(tokenData.expiresAt).toLocaleString());
+    return isValid;
   }
 
   /**
@@ -157,6 +259,38 @@ export class BiometricAuthService {
    * @returns An Observable that resolves when registration is complete
    */
   registerBiometricCredential(username: string, userId: string): Observable<boolean> {
+    console.log('Starting biometric registration process for user:', username);
+
+    // Use mock implementation if needed
+    if (this.useMockImplementation) {
+      console.log('Using mock biometric registration');
+
+      return of(true).pipe(
+        delay(1500), // Simulate biometric verification delay
+        tap(() => {
+          try {
+            // Create a mock token
+            const token: AuthToken = {
+              token: 'mock_webauthn_' + Math.random().toString(36).substring(2, 15),
+              expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000), // 30 days
+              userId: userId,
+              email: `${username}@example.com`,
+              username: username,
+              credentialId: 'mock_credential_' + Math.random().toString(36).substring(2, 15)
+            };
+
+            // Store the mock token and credential ID
+            this.storeToken(token);
+            localStorage.setItem(this.CREDENTIAL_KEY, token.credentialId!);
+            console.log('Mock biometric registration successful', token.credentialId);
+          } catch (error: any) {
+            console.error('Error storing mock biometric credentials:', error);
+            throw new Error('Failed to store mock credentials: ' + error.message);
+          }
+        })
+      );
+    }
+
     if (!this.isBiometricSupported()) {
       return throwError(() => new Error('WebAuthn is not supported in this browser'));
     }
@@ -170,6 +304,7 @@ export class BiometricAuthService {
 
         // Generate a random challenge
         const challenge = this.generateRandomChallenge();
+        console.log('Created challenge for registration');
 
         // Prepare creation options according to WebAuthn spec
         const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
@@ -189,20 +324,25 @@ export class BiometricAuthService {
           ],
           authenticatorSelection: {
             authenticatorAttachment: "platform", // Use platform authenticator (like Touch ID or Face ID)
-            userVerification: "required" // Require biometric verification
+            userVerification: "required", // Require biometric verification
+            requireResidentKey: false
           },
           timeout: 60000,
           attestation: "none" // Don't require attestation to simplify
         };
+
+        console.log('Requesting credential creation with options:', JSON.stringify(publicKeyCredentialCreationOptions));
 
         // Call WebAuthn create() method to register the credential
         return from(navigator.credentials.create({
           publicKey: publicKeyCredentialCreationOptions
         }) as Promise<PublicKeyCredential>).pipe(
           map(credential => {
+            console.log('WebAuthn credential created successfully');
             // Store the credential ID for later authentication
             const rawId = new Uint8Array(credential.rawId);
             const credentialId = this.bufferToBase64UrlString(rawId);
+            console.log('Credential ID:', credentialId);
 
             // Generate a mock token with the credential ID
             const token: AuthToken = {
@@ -214,12 +354,37 @@ export class BiometricAuthService {
               credentialId: credentialId
             };
 
-            // Store the token and credential ID
-            this.storeToken(token);
-            localStorage.setItem(this.CREDENTIAL_KEY, credentialId);
+            console.log('Storing token:', JSON.stringify(token));
 
-            console.log('Biometric credential registered successfully:', credentialId);
-            return true;
+            // Store the token and credential ID
+            try {
+              this.storeToken(token);
+
+              // Verify token was stored
+              const storedToken = this.getStoredToken();
+              if (!storedToken) {
+                console.error('Failed to store token - not found after save');
+              } else {
+                console.log('Token successfully stored and verified');
+              }
+
+              // Store credential ID
+              localStorage.setItem(this.CREDENTIAL_KEY, credentialId);
+
+              // Verify credential ID was stored
+              const storedCredId = localStorage.getItem(this.CREDENTIAL_KEY);
+              if (storedCredId !== credentialId) {
+                console.error('Failed to store credential ID - value mismatch', storedCredId);
+              } else {
+                console.log('Credential ID successfully stored and verified');
+              }
+
+              console.log('Biometric credential registered successfully');
+              return true;
+            } catch (error: any) {
+              console.error('Error storing credential data:', error);
+              throw new Error('Failed to store credential data: ' + error.message);
+            }
           }),
           catchError(error => {
             console.error('Error registering credential:', error);
@@ -236,6 +401,42 @@ export class BiometricAuthService {
    * @returns An Observable that resolves to a success value on successful authentication
    */
   authenticateWithBiometrics(): Observable<boolean> {
+    console.log('Starting biometric authentication process');
+
+    // Use mock implementation if needed
+    if (this.useMockImplementation) {
+      console.log('Using mock biometric authentication');
+
+      return of(true).pipe(
+        delay(1500), // Simulate biometric verification delay
+        tap(() => {
+          try {
+            // Check if we have a mock token
+            const token = this.getStoredToken();
+            if (!token) {
+              throw new Error('No token found. Please register first.');
+            }
+
+            // Update token expiration
+            token.expiresAt = Date.now() + (30 * 24 * 60 * 60 * 1000); // 30 days
+            this.storeToken(token);
+
+            // Authenticate the user
+            this.authService.setAuthenticatedUserFromToken(
+              token.userId,
+              token.email,
+              token.username
+            );
+
+            console.log('Mock biometric authentication successful');
+          } catch (error: any) {
+            console.error('Error in mock biometric authentication:', error);
+            throw new Error('Mock authentication failed: ' + error.message);
+          }
+        })
+      );
+    }
+
     if (!this.isBiometricSupported()) {
       return throwError(() => new Error('WebAuthn is not supported in this browser'));
     }
@@ -243,8 +444,11 @@ export class BiometricAuthService {
     // Get stored credential ID if available
     const credentialId = localStorage.getItem(this.CREDENTIAL_KEY);
     if (!credentialId) {
+      console.error('No stored credential ID found in localStorage');
       return throwError(() => new Error('No biometric credential found. Please register first.'));
     }
+
+    console.log('Found stored credential ID:', credentialId);
 
     // Generate a random challenge
     const challenge = this.generateRandomChallenge();
@@ -261,29 +465,40 @@ export class BiometricAuthService {
       userVerification: 'required' // Require biometric verification
     };
 
+    console.log('Requesting credential with options:', JSON.stringify(publicKeyCredentialRequestOptions));
+
     // Call WebAuthn get() method to authenticate
     return from(navigator.credentials.get({
       publicKey: publicKeyCredentialRequestOptions
     }) as Promise<PublicKeyCredential>).pipe(
       map(assertion => {
+        console.log('WebAuthn authentication successful');
         // Authentication succeeded - retrieve and update the stored token
         const token = this.getStoredToken();
 
         if (token) {
           // Update token expiration
           token.expiresAt = Date.now() + (30 * 24 * 60 * 60 * 1000); // 30 days
-          this.storeToken(token);
 
-          // Update authentication state in AuthService
-          this.authService.setAuthenticatedUserFromToken(
-            token.userId,
-            token.email,
-            token.username
-          );
+          try {
+            this.storeToken(token);
+            console.log('Token updated with new expiration');
 
-          console.log('Biometric authentication successful');
-          return true;
+            // Update authentication state in AuthService
+            this.authService.setAuthenticatedUserFromToken(
+              token.userId,
+              token.email,
+              token.username
+            );
+
+            console.log('Biometric authentication successful');
+            return true;
+          } catch (error: any) {
+            console.error('Error updating token:', error);
+            throw new Error('Error updating token: ' + error.message);
+          }
         } else {
+          console.error('Token not found after successful authentication');
           throw new Error('Token not found after successful authentication');
         }
       }),
@@ -300,9 +515,13 @@ export class BiometricAuthService {
    * @returns True if successfully authenticated with token
    */
   loginWithStoredToken(): boolean {
+    console.log('Attempting to login with stored token');
+
     if (this.hasBiometricToken()) {
       const token = this.getStoredToken();
       if (token) {
+        console.log('Using token to authenticate:', token);
+
         // Update authentication state in AuthService
         this.authService.setAuthenticatedUserFromToken(
           token.userId,
@@ -321,9 +540,13 @@ export class BiometricAuthService {
    * Clears any stored biometric tokens and credentials
    */
   clearBiometricToken(): void {
-    localStorage.removeItem(this.TOKEN_KEY);
-    localStorage.removeItem(this.CREDENTIAL_KEY);
-    console.log('Biometric token and credential cleared');
+    try {
+      localStorage.removeItem(this.TOKEN_KEY);
+      localStorage.removeItem(this.CREDENTIAL_KEY);
+      console.log('Biometric token and credential cleared');
+    } catch (error: any) {
+      console.error('Error clearing biometric tokens:', error);
+    }
   }
 
   /**
@@ -370,7 +593,19 @@ export class BiometricAuthService {
    * @param token The token to store
    */
   private storeToken(token: AuthToken): void {
-    localStorage.setItem(this.TOKEN_KEY, JSON.stringify(token));
+    if (!isPlatformBrowser(this.platformId)) {
+      console.error('Cannot store token: not in browser environment');
+      return;
+    }
+
+    try {
+      const tokenJson = JSON.stringify(token);
+      localStorage.setItem(this.TOKEN_KEY, tokenJson);
+      console.log('Token stored successfully:', tokenJson);
+    } catch (error: any) {
+      console.error('Error storing token in localStorage:', error);
+      throw new Error('Failed to store token: ' + error.message);
+    }
   }
 
   /**
@@ -379,17 +614,24 @@ export class BiometricAuthService {
    * @returns The stored token or null if none exists
    */
   private getStoredToken(): AuthToken | null {
-    if(isPlatformBrowser(this.platformId)) {
-      const tokenJson = localStorage.getItem(this.TOKEN_KEY);
-      if (!tokenJson) return null;
+    if (!isPlatformBrowser(this.platformId)) {
+      console.log('Not a browser environment, cannot retrieve token');
+      return null;
+    }
 
-      try {
-        return JSON.parse(tokenJson) as AuthToken;
-      } catch (e) {
-        console.error('Error parsing stored token:', e);
+    try {
+      const tokenJson = localStorage.getItem(this.TOKEN_KEY);
+      if (!tokenJson) {
+        console.log('No token found in localStorage');
         return null;
       }
+
+      const token = JSON.parse(tokenJson) as AuthToken;
+      console.log('Retrieved token:', token);
+      return token;
+    } catch (e: any) {
+      console.error('Error parsing stored token:', e);
+      return null;
     }
-    return null;
   }
 }
