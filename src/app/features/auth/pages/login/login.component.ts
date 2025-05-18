@@ -11,6 +11,7 @@ import { AuthService } from '../../services/auth.service';
 import { NavigationService } from '../../services/navigation.service';
 import { BiometricAuthService } from '../../services/biometric-auth.service';
 import { Subscription } from 'rxjs';
+import { IUser } from '../../interfaces/IUser';
 
 /**
  * Enum representing available biometric authentication methods
@@ -57,12 +58,6 @@ export class LoginComponent implements OnInit, OnDestroy {
   protected readonly errorMessage = signal<string | null>(null);
 
   /**
-   * Signal to track if the user is on a mobile or tablet device.
-   * @signal
-   */
-  protected readonly isMobileOrTablet = signal<boolean>(false);
-
-  /**
    * Signal to track if WebAuthn is available on this device.
    * @signal
    */
@@ -85,6 +80,18 @@ export class LoginComponent implements OnInit, OnDestroy {
    * @signal
    */
   protected readonly canRegisterBiometric = signal<boolean>(false);
+
+  /**
+   * Signal to track if biometrics are enabled for the current user
+   * @signal
+   */
+  protected readonly isBiometricsEnabled = signal<boolean>(false);
+
+  /**
+   * Signal to track if we should show biometric setup prompt
+   * @signal
+   */
+  protected readonly showBiometricSetupPrompt = signal<boolean>(false);
 
   /**
    * Signal to track if mock biometric mode is enabled
@@ -138,44 +145,47 @@ export class LoginComponent implements OnInit, OnDestroy {
     try {
       const stored = localStorage.getItem(this.CREDENTIAL_KEY);
       if (stored) {
-        console.log('Valid biometric token found, attempting login...');
-        this.isLoading.set(true);
-
-        // Get the token from the stored credential
         const credData = JSON.parse(stored);
-        if (credData && credData.token) {
-          // Use the token to authenticate the user
-          const token = atob(credData.token);
-
-          // Simulate a successful login using the token
-          console.log('Successfully logged in with biometric token, redirecting to home');
-          setTimeout(() => {
-            this.isLoading.set(false);
-            this.navigationService.navigateToHome();
-          }, 1000);
+        // Only mark biometrics as enabled if we have valid data with a userId
+        if (credData && credData.token && credData.userId) {
+          console.log('Valid biometric token found for user:', credData.userId);
+          this.isBiometricsEnabled.set(true);
         } else {
-          console.log('Invalid biometric token format');
-          this.isLoading.set(false);
-          this.errorMessage.set('Automatic login failed. Please log in manually.');
+          console.log('Invalid biometric data format');
+          this.isBiometricsEnabled.set(false);
         }
       } else {
-        console.log('No valid biometric token found');
+        console.log('No biometric data found');
+        this.isBiometricsEnabled.set(false);
       }
     } catch (error) {
       console.error('Error checking biometric token:', error);
-      this.errorMessage.set('Error checking biometric token. Please log in manually.');
+      this.isBiometricsEnabled.set(false);
     }
   }
 
   /**
-   * Detects device capabilities including mobile/tablet status and biometric support
+   * Checks if biometrics are enabled for a specific user
+   * @param userId The user ID to check
+   * @returns Whether biometrics are enabled for this user
+   */
+  private isBiometricsEnabledForUser(userId: string): boolean {
+    try {
+      const stored = localStorage.getItem(this.CREDENTIAL_KEY);
+      if (!stored) return false;
+
+      const credData = JSON.parse(stored);
+      return credData && credData.userId === userId;
+    } catch (error) {
+      console.error('Error checking biometrics for user:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Detects device capabilities including WebAuthn and biometric support
    */
   private async detectDeviceCapabilities(): Promise<void> {
-    // Check if device is mobile or tablet
-    const isMobileOrTablet = this.biometricAuthService.isMobileOrTablet();
-    this.isMobileOrTablet.set(isMobileOrTablet);
-    console.log('Mobile or tablet device detected:', isMobileOrTablet);
-
     // Check if WebAuthn is supported by checking if navigator.credentials exists
     const isWebAuthnSupported = window.PublicKeyCredential !== undefined &&
                                navigator.credentials !== undefined;
@@ -190,22 +200,22 @@ export class LoginComponent implements OnInit, OnDestroy {
         console.log('Platform authenticator available:', isPlatformAuthAvailable);
 
         if (isPlatformAuthAvailable) {
-          // For simplicity, assume fingerprint on most devices
-          // In a real app, we could try to detect the specific biometric type
+          // Try to determine what type of biometric is available
+          // For simplicity, we'll use fingerprint as default
+          // In a real app, we'd try to detect the specific type
           this.biometricType.set(BiometricType.FINGERPRINT);
-          console.log('Biometric type detected:', BiometricType.FINGERPRINT);
+
+          // On macOS or iOS devices with Face ID, we might want to use face
+          if (navigator.platform.includes('Mac') ||
+              /iPhone|iPad|iPod/.test(navigator.userAgent)) {
+            this.biometricType.set(BiometricType.FACE);
+          }
+
+          console.log('Biometric type detected:', this.biometricType());
         }
       } catch (error) {
         console.error('Error detecting biometric capabilities:', error);
       }
-    }
-
-    // Check if there's a stored credential to determine if user can log in with biometrics
-    try {
-      const hasStoredCredential = localStorage.getItem(this.CREDENTIAL_KEY) !== null;
-      console.log('Has stored biometric credential:', hasStoredCredential);
-    } catch (error) {
-      console.error('Error checking stored credentials:', error);
     }
   }
 
@@ -246,8 +256,17 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.authService.login(email, password).subscribe({
       next: () => {
         this.isLoading.set(false);
-        this.canRegisterBiometric.set(this.isPlatformAuthenticatorAvailable());
-        this.navigationService.navigateToHome();
+
+        // Generate a user ID based on email since IUser doesn't have an ID field
+        const userIdForBiometrics = `user_${email}`;
+
+        if (this.isPlatformAuthenticatorAvailable() && !this.isBiometricsEnabledForUser(userIdForBiometrics)) {
+          console.log('Biometrics not enabled for user, showing setup prompt');
+          this.showBiometricSetupPrompt.set(true);
+          this.canRegisterBiometric.set(true);
+        } else {
+          this.navigationService.navigateToHome();
+        }
       },
       error: (error) => {
         console.error('Login error:', error);
@@ -255,6 +274,14 @@ export class LoginComponent implements OnInit, OnDestroy {
         this.isLoading.set(false);
       }
     });
+  }
+
+  /**
+   * Dismisses the biometric setup prompt and continues to home
+   */
+  skipBiometricSetup(): void {
+    this.showBiometricSetupPrompt.set(false);
+    this.navigationService.navigateToHome();
   }
 
   /**
@@ -296,22 +323,44 @@ export class LoginComponent implements OnInit, OnDestroy {
   /**
    * Save credential and token in localStorage
    */
-  private saveCredentialLocally(credential: PublicKeyCredential): void {
+  private saveCredentialLocally(credential: PublicKeyCredential, userId: string): void {
     const user = this.authService.currentUserSig();
+    if (!user) {
+      throw new Error('No authenticated user found');
+    }
+
     const credData = {
       id: credential.id,
       type: credential.type,
       rawId: this.arrayBufferToBase64(credential.rawId),
+      // Store the user ID to link this credential to a specific user
+      userId: userId,
       // For a real app, this would be a real token from your backend
-      token: btoa(user?.username || 'demo-user'),
+      token: btoa(user.username || 'demo-user'),
     };
 
     try {
       localStorage.setItem(this.CREDENTIAL_KEY, JSON.stringify(credData));
-      console.log('Credential saved locally.');
+      console.log('Credential saved locally for user:', userId);
+      this.isBiometricsEnabled.set(true);
     } catch (error) {
       console.error('Error saving credential:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Removes the stored biometric credential for the current user
+   */
+  disableBiometrics(): void {
+    try {
+      localStorage.removeItem(this.CREDENTIAL_KEY);
+      this.isBiometricsEnabled.set(false);
+      this.errorMessage.set('Biometric authentication has been disabled.');
+      console.log('Biometrics disabled');
+    } catch (error) {
+      console.error('Error disabling biometrics:', error);
+      this.errorMessage.set('Failed to disable biometric authentication.');
     }
   }
 
@@ -339,10 +388,12 @@ export class LoginComponent implements OnInit, OnDestroy {
 
     this.isLoading.set(true);
     this.errorMessage.set(null);
+    this.showBiometricSetupPrompt.set(false);
 
     try {
       const challenge = this.generateChallenge();
-      const userId = `user_${Math.random().toString(36).substring(2, 10)}`;
+      // Generate a user ID from email since IUser doesn't have an ID field
+      const userId = `user_${user.email}`;
 
       // Create WebAuthn credential options
       const publicKeyOptions: PublicKeyCredentialCreationOptions = {
@@ -367,11 +418,18 @@ export class LoginComponent implements OnInit, OnDestroy {
 
           // Cast to the correct type
           const pubKeyCredential = credential as PublicKeyCredential;
-          this.saveCredentialLocally(pubKeyCredential);
+          this.saveCredentialLocally(pubKeyCredential, userId);
 
           console.log('Biometric registration successful');
           this.isLoading.set(false);
-          this.errorMessage.set('Biometric credential registered successfully! You can now use biometric authentication.');
+
+          if (this.showBiometricSetupPrompt()) {
+            // If this was during initial setup, navigate to home
+            this.navigationService.navigateToHome();
+          } else {
+            // Otherwise show success message
+            this.errorMessage.set('Biometric credential registered successfully! You can now use biometric authentication.');
+          }
         })
         .catch((error) => {
           console.error('Biometric registration error:', error);
@@ -389,11 +447,21 @@ export class LoginComponent implements OnInit, OnDestroy {
 
           this.errorMessage.set(errorMessage);
           this.isLoading.set(false);
+
+          if (this.showBiometricSetupPrompt()) {
+            // If this was during initial setup, continue to home anyway
+            this.navigationService.navigateToHome();
+          }
         });
     } catch (error: any) {
       console.error('Error initiating biometric registration:', error);
       this.errorMessage.set('Failed to initiate biometric registration: ' + error.message);
       this.isLoading.set(false);
+
+      if (this.showBiometricSetupPrompt()) {
+        // If this was during initial setup, continue to home anyway
+        this.navigationService.navigateToHome();
+      }
     }
   }
 
@@ -445,7 +513,15 @@ export class LoginComponent implements OnInit, OnDestroy {
           console.log('Biometric authentication successful, navigating to home');
 
           // For a real app, you would verify the assertion with your backend
-          // Here we just use the stored token from localStorage
+          // Here we just use the stored user ID to log the user in
+          if (credData.userId) {
+            // In a real app, you would validate this token with your backend
+            console.log('User authenticated with ID:', credData.userId);
+
+            // Tell the auth service about the biometric authentication
+            this.authService.setAuthenticatedUserFromToken(credData.userId);
+          }
+
           this.isLoading.set(false);
           this.navigationService.navigateToHome();
         })
