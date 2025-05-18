@@ -12,25 +12,27 @@
           <a routerLink="/" class="text-2xl font-bold text-indigo-600">Test Biometrics</a>
         </div>
 
-        <!-- Desktop Navigation Links -->
+        @if((user$ | async) !== null) {
+          <!-- Desktop Navigation Links -->
         <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
           <a routerLink="/home" routerLinkActive="border-indigo-500 text-gray-900"
             class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
             Home
           </a>
-          <a routerLink="/features" routerLinkActive="border-indigo-500 text-gray-900"
+          <a
             class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
             Features
           </a>
-          <a routerLink="/pricing" routerLinkActive="border-indigo-500 text-gray-900"
+          <a
             class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
             Pricing
           </a>
-          <a routerLink="/about" routerLinkActive="border-indigo-500 text-gray-900"
+          <a
             class="border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">
             About
           </a>
         </div>
+        }
       </div>
 
       <!-- User Navigation Options -->
@@ -41,7 +43,7 @@
               class="text-gray-500 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">
               Sign In
             </a>
-            <a routerLink="/register"
+            <a routerLink="auth/register"
               class="ml-3 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
               Sign Up
             </a>
@@ -68,7 +70,7 @@
 
   <!-- User navigation -->
   <div class="ml-3 flex items-center">
-    <a routerLink="/profile"
+    <a routerLink="auth/profile"
       class="text-gray-500 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">
       Profile
     </a>
@@ -146,7 +148,7 @@
         </div>
       } @else {
         <div class="flex items-center px-4">
-          <div class="flex-shrink-0">
+          <div  class="flex-shrink-0">
             <span class="inline-flex items-center justify-center h-10 w-10 rounded-full bg-indigo-100">
               <span class="text-sm font-medium leading-none text-indigo-700">
                 {{ (user$ | async)?.displayName?.charAt(0) || 'U' }}
