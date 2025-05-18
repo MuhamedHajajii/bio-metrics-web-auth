@@ -6,7 +6,7 @@
  * and Firebase integration.
  */
 import { ApplicationConfig, importProvidersFrom } from '@angular/core';
-import { provideRouter } from '@angular/router';
+import { provideRouter, withHashLocation } from '@angular/router';
 
 import { routes } from './app.routes';
 import { provideClientHydration } from '@angular/platform-browser';
@@ -27,7 +27,7 @@ import { provideStorage } from '@angular/fire/storage';
 
 export const appConfig: ApplicationConfig = {
   providers: [
-    provideRouter(routes),
+    provideRouter(routes,withHashLocation()),
     provideClientHydration(),
     provideHttpClient(withFetch()),
     provideAnimations(),
