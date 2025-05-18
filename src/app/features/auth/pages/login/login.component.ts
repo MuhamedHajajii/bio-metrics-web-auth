@@ -204,54 +204,6 @@ export class LoginComponent implements OnInit, OnDestroy {
     }
   }
 
-  /**
-   * Toggle mock biometric mode for testing
-   */
-  toggleMockBiometricMode(): void {
-    const newValue = !this.isMockBiometricMode();
-    this.isMockBiometricMode.set(newValue);
-    this.biometricAuthService.enableMockBiometrics(newValue);
-
-    // Refresh capabilities after toggling
-    this.detectDeviceCapabilities();
-
-    this.errorMessage.set(newValue
-      ? 'Mock biometric mode enabled. You can now use biometric authentication in this browser for testing.'
-      : 'Mock biometric mode disabled. Using real biometric hardware if available.');
-  }
-
-  /**
-   * Tests localStorage functionality directly
-   */
-  testLocalStorage(): void {
-    try {
-      const testKey = 'test_login_storage';
-      const testValue = 'test_value_' + new Date().getTime();
-
-      console.log('Testing localStorage with key:', testKey, 'value:', testValue);
-
-      // Try to write to localStorage
-      localStorage.setItem(testKey, testValue);
-
-      // Try to read from localStorage
-      const readValue = localStorage.getItem(testKey);
-      console.log('Read value from localStorage:', readValue);
-
-      // Clean up
-      localStorage.removeItem(testKey);
-
-      if (readValue === testValue) {
-        console.log('localStorage test passed!');
-        this.errorMessage.set('localStorage test successful!');
-      } else {
-        console.error('localStorage test failed - value mismatch');
-        this.errorMessage.set('localStorage test failed - value mismatch');
-      }
-    } catch (error: any) {
-      console.error('Error testing localStorage:', error);
-      this.errorMessage.set('localStorage error: ' + (error.message || 'Unknown error'));
-    }
-  }
 
   /**
    * Handles the login form submission.

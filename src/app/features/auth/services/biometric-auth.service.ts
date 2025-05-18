@@ -12,6 +12,7 @@ import { AuthService } from './auth.service';
 import { NavigationService } from './navigation.service';
 import { isPlatformBrowser } from '@angular/common';
 import { DeviceDetectorService } from 'ngx-device-detector';
+import { HttpClient } from '@angular/common/http';
 
 /**
  * Token interface defining the structure of authentication tokens
@@ -46,11 +47,13 @@ export class BiometricAuthService {
   private readonly TOKEN_KEY = 'biometric_auth_token';
   private readonly CREDENTIAL_KEY = 'webauthn_credential_id';
   private readonly MOCK_MODE_KEY = 'biometric_mock_mode';
+  private readonly BIOMETRIC_ENABLED_KEY = 'biometric_auth_enabled';
   private authService = inject(AuthService);
-  private navigationService = inject(NavigationService);
-  private router = inject(Router);
   private platformId = inject(PLATFORM_ID);
   private deviceService = inject(DeviceDetectorService);
+  private router = inject(Router);
+  private navigation = inject(NavigationService);
+  private http = inject(HttpClient);
 
   // Flag to use mock implementation when WebAuthn isn't working
   private useMockImplementation = false;
@@ -310,7 +313,7 @@ export class BiometricAuthService {
         const publicKeyCredentialCreationOptions: PublicKeyCredentialCreationOptions = {
           challenge: challenge,
           rp: {
-            name: "Angular Biometric Auth Demo",
+            name: "Your App Name",
             id: window.location.hostname
           },
           user: {
@@ -331,6 +334,7 @@ export class BiometricAuthService {
           attestation: "none" // Don't require attestation to simplify
         };
 
+        console.log('Using hostname for RP ID:', window.location.hostname);
         console.log('Requesting credential creation with options:', JSON.stringify(publicKeyCredentialCreationOptions));
 
         // Call WebAuthn create() method to register the credential
@@ -633,5 +637,181 @@ export class BiometricAuthService {
       console.error('Error parsing stored token:', e);
       return null;
     }
+  }
+
+  /**
+   * Checks if the user has enabled biometric authentication
+   *
+   * @returns True if biometric authentication is enabled by the user
+   */
+  isBiometricEnabled(): boolean {
+    if (!isPlatformBrowser(this.platformId)) {
+      return false;
+    }
+
+    try {
+      return localStorage.getItem(this.BIOMETRIC_ENABLED_KEY) === 'true';
+    } catch (error: any) {
+      console.error('Error checking biometric enabled status:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Enables or disables biometric authentication
+   *
+   * @param enable Whether to enable biometric authentication
+   */
+  setBiometricEnabled(enable: boolean): void {
+    if (!isPlatformBrowser(this.platformId)) {
+      return;
+    }
+
+    try {
+      localStorage.setItem(this.BIOMETRIC_ENABLED_KEY, enable ? 'true' : 'false');
+      console.log('Biometric authentication enabled:', enable);
+    } catch (error: any) {
+      console.error('Error setting biometric enabled status:', error);
+    }
+  }
+
+  /**
+   * Refreshes the stored token using the refresh token API
+   *
+   * @returns Observable that resolves to true if token was refreshed successfully
+   */
+  refreshTokenFromApi(): Observable<boolean> {
+    console.log('Starting token refresh process');
+
+    const token = this.getStoredToken();
+    if (!token) {
+      console.error('No token found to refresh');
+      return throwError(() => new Error('No token found to refresh'));
+    }
+
+    // Get the current token to use as a refresh token
+    const currentToken = token.token;
+
+    // Call your API endpoint to refresh the token
+    // Replace 'your-refresh-endpoint' with your actual endpoint
+    return this.http.post<any>('/api/auth/refresh-token', { token: currentToken }).pipe(
+      map(response => {
+        if (!response || !response.token) {
+          throw new Error('Invalid response from refresh token API');
+        }
+
+        // Update the stored token with the new one
+        const newToken: AuthToken = {
+          token: response.token,
+          expiresAt: Date.now() + (response.expiresIn || 30 * 24 * 60 * 60 * 1000), // Default to 30 days if not specified
+          userId: token.userId,
+          email: token.email,
+          username: token.username,
+          credentialId: token.credentialId
+        };
+
+        try {
+          this.storeToken(newToken);
+          console.log('Token refreshed successfully');
+          return true;
+        } catch (error: any) {
+          console.error('Error storing refreshed token:', error);
+          throw error;
+        }
+      }),
+      catchError(error => {
+        console.error('Error refreshing token:', error);
+        return throwError(() => new Error('Failed to refresh token: ' + error.message));
+      })
+    );
+  }
+
+  /**
+   * Offers biometric login to the user and handles the complete flow
+   *
+   * @returns Observable that resolves when the biometric login process is complete
+   */
+  offerBiometricLogin(): Observable<boolean> {
+    if (!this.isBiometricSupported() || !this.hasBiometricToken()) {
+      console.log('Biometric login not available or no token stored');
+      return of(false);
+    }
+
+    if (!this.isBiometricEnabled()) {
+      console.log('Biometric authentication not enabled by user');
+      return of(false);
+    }
+
+    console.log('Starting biometric login flow');
+
+    // First authenticate with biometrics
+    return this.authenticateWithBiometrics().pipe(
+      switchMap(authenticated => {
+        if (!authenticated) {
+          console.log('Biometric authentication failed');
+          return of(false);
+        }
+
+        // Biometric authentication succeeded, now refresh the token
+        return this.refreshTokenFromApi().pipe(
+          map(refreshed => {
+            if (refreshed) {
+              // Re-login with the fresh token
+              if (this.loginWithStoredToken()) {
+                console.log('Successfully logged in with refreshed token');
+                return true;
+              }
+              console.error('Failed to login with refreshed token');
+              return false;
+            }
+            console.error('Failed to refresh token');
+            return false;
+          }),
+          catchError(error => {
+            console.error('Error during token refresh after biometric auth:', error);
+            // Even if refresh failed, we may still want to try using the existing token
+            if (this.loginWithStoredToken()) {
+              console.log('Logged in with existing token despite refresh failure');
+              return of(true);
+            }
+            return of(false);
+          })
+        );
+      })
+    );
+  }
+
+  /**
+   * Sets up biometric authentication for a user who is already logged in
+   *
+   * @returns Observable that resolves when setup is complete
+   */
+  setupBiometricLogin(): Observable<boolean> {
+    // Check if user is already authenticated by checking the currentUserSig
+    const currentUser = this.authService.currentUserSig();
+
+    if (!currentUser) {
+      console.error('User must be authenticated to set up biometric login');
+      return throwError(() => new Error('User must be authenticated to set up biometric login'));
+    }
+
+    const username = currentUser.username;
+    // Use email as the userId since the IUser interface doesn't have an id field
+    const userId = currentUser.email;
+
+    if (!username) {
+      console.error('Missing username required for biometric setup');
+      return throwError(() => new Error('Missing username for biometric setup'));
+    }
+
+    // Register the biometric credential
+    return this.registerBiometricCredential(username, userId).pipe(
+      tap(success => {
+        if (success) {
+          this.setBiometricEnabled(true);
+          console.log('Biometric login setup completed successfully');
+        }
+      })
+    );
   }
 }
